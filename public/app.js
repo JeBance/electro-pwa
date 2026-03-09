@@ -77,8 +77,12 @@ function getInitials(name) {
 }
 
 // Navigation
-function setView(view) {
+async function setView(view) {
   currentView = view;
+  // При переходе на обогреватели — обновляем данные
+  if (view === 'heaters') {
+    await loadData();
+  }
   render();
 }
 
@@ -460,20 +464,20 @@ function getRoleName(role) {
 
 function renderBottomNav() {
   if (!currentUser) return '';
-  
+
   return `
     <nav class="bottom-nav">
-      <div class="nav-item ${currentView === 'heaters' ? 'active' : ''}" data-view="heaters" onclick="setView('heaters')">
+      <div class="nav-item ${currentView === 'heaters' ? 'active' : ''}" data-view="heaters" onclick="setView('heaters'); return false;">
         <span class="nav-icon">🔥</span>
         <span>Обогреватели</span>
       </div>
       ${currentUser.role === 'admin' ? `
-        <div class="nav-item ${currentView === 'admin' ? 'active' : ''}" data-view="admin" onclick="setView('admin')">
+        <div class="nav-item ${currentView === 'admin' ? 'active' : ''}" data-view="admin" onclick="setView('admin'); return false;">
           <span class="nav-icon">⚙️</span>
           <span>Админка</span>
         </div>
       ` : ''}
-      <div class="nav-item ${currentView === 'profile' ? 'active' : ''}" data-view="profile" onclick="setView('profile')">
+      <div class="nav-item ${currentView === 'profile' ? 'active' : ''}" data-view="profile" onclick="setView('profile'); return false;">
         <span class="nav-icon">👤</span>
         <span>Профиль</span>
       </div>
@@ -1063,7 +1067,12 @@ async function deletePremise(id) {
 // View mode toggle
 function toggleViewMode() {
   viewMode = viewMode === 'premises' ? 'list' : 'premises';
-  // Обновляем только контент обогревателей
+  // Обновляем переключатель
+  const toggle = $('.toggle');
+  if (toggle) {
+    toggle.classList.toggle('active', viewMode === 'list');
+  }
+  // Обновляем контент
   const content = $('.content');
   if (content) {
     content.innerHTML = renderHeaters();
@@ -1089,18 +1098,18 @@ async function updateSyncStatus() {
 async function init() {
   if (checkAuth()) {
     await loadData();
-    setView('heaters');
+    await setView('heaters');
   } else {
-    setView('login');
+    await setView('login');
   }
-  
+
   // Listen for online/offline
   window.addEventListener('online', () => {
     showToast('Онлайн');
     render();
     syncQueue();
   });
-  
+
   window.addEventListener('offline', () => {
     showToast('Офлайн');
     render();
