@@ -953,7 +953,18 @@ async function deleteObject(id) {
   try {
     await api(`/objects/${id}`, { method: 'DELETE' });
     showToast('Объект удалён');
-    loadAdminData();
+    await loadAdminData();
+    // Обновляем отображение
+    const objectsList = $('#objects-list');
+    if (objectsList) {
+      const objectsHtml = objects.map(o => `
+        <div class="settings-item">
+          <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}</span>
+          <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">Удалить</button>
+        </div>
+      `).join('');
+      objectsList.innerHTML = objectsHtml;
+    }
   } catch (err) {
     showToast(err.message);
   }
@@ -1022,7 +1033,18 @@ async function deletePremise(id) {
   try {
     await api(`/premises/${id}`, { method: 'DELETE' });
     showToast('Помещение удалено');
-    loadAdminData();
+    await loadAdminData();
+    // Обновляем отображение
+    const premisesList = $('#premises-list');
+    if (premisesList) {
+      const premisesHtml = premises.map(p => `
+        <div class="settings-item">
+          <span class="settings-item-label">${p.name} (${p.object_name || '?'})</span>
+          <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">Удалить</button>
+        </div>
+      `).join('');
+      premisesList.innerHTML = premisesHtml;
+    }
   } catch (err) {
     showToast(err.message);
   }
@@ -1031,7 +1053,11 @@ async function deletePremise(id) {
 // View mode toggle
 function toggleViewMode() {
   viewMode = viewMode === 'premises' ? 'list' : 'premises';
-  renderHeaters();
+  // Обновляем только контент обогревателей
+  const content = $('.content');
+  if (content) {
+    content.innerHTML = renderHeaters();
+  }
 }
 
 // Event handlers
