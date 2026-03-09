@@ -539,8 +539,9 @@ function closeModal() {
 }
 
 function showAddHeaterModal() {
-  const objectsHtml = objects.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
-  
+  const lastObjectId = localStorage.getItem('last_object_id') || '';
+  const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
+
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Добавить обогреватель</div>
@@ -548,7 +549,7 @@ function showAddHeaterModal() {
     </div>
     <form onsubmit="handleAddHeater(event)">
       <div class="input-group">
-        <select name="object_id" required onchange="updatePremisesSelect(this.value)">
+        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
           <option value="">Выберите объект</option>
           ${objectsHtml}
         </select>
@@ -602,8 +603,12 @@ function updatePremisesSelect(objectId) {
 async function handleAddHeater(e) {
   e.preventDefault();
   const form = e.target;
+  const objectId = parseInt(form.object_id.value);
+  // Сохраняем последний выбранный объект
+  localStorage.setItem('last_object_id', objectId);
+  
   const data = {
-    object_id: parseInt(form.object_id.value),
+    object_id: objectId,
     premise_id: parseInt(form.premise_id.value),
     name: form.name.value,
     serial: form.serial.value || null,
@@ -709,17 +714,17 @@ async function loadHeaterEvents(heaterId) {
 function showEditHeaterModal(id) {
   const heater = heaters.find(h => h.id === id);
   if (!heater) return;
-  
+
   const premise = premises.find(p => p.id === heater.premise_id);
-  const objectsHtml = objects.map(o => 
+  const objectsHtml = objects.map(o =>
     `<option value="${o.id}" ${o.id === premise?.object_id ? 'selected' : ''}>${o.name}</option>`
   ).join('');
-  
+
   const premisesHtml = premises
     .filter(p => p.object_id === premise?.object_id)
     .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`)
     .join('');
-  
+
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Редактировать</div>
@@ -727,7 +732,7 @@ function showEditHeaterModal(id) {
     </div>
     <form onsubmit="handleEditHeater(event, ${id})">
       <div class="input-group">
-        <select name="object_id" required onchange="updatePremisesSelect(this.value)">
+        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
           <option value="">Объект</option>
           ${objectsHtml}
         </select>
@@ -975,7 +980,8 @@ async function showAddPremiseModal() {
   if (objects.length === 0) {
     await loadData();
   }
-  const objectsHtml = objects.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+  const lastObjectId = localStorage.getItem('last_object_id') || '';
+  const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   showModal(`
     <div class="modal-header">
@@ -984,7 +990,7 @@ async function showAddPremiseModal() {
     </div>
     <form onsubmit="handleAddPremise(event)">
       <div class="input-group">
-        <select name="object_id" required>
+        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
           <option value="">Объект</option>
           ${objectsHtml}
         </select>
@@ -1011,10 +1017,14 @@ async function handleAddPremise(e) {
   e.preventDefault();
   const form = e.target;
   try {
+    const objectId = parseInt(form.object_id.value);
+    // Сохраняем последний выбранный объект
+    localStorage.setItem('last_object_id', objectId);
+    
     await api('/premises', {
       method: 'POST',
       body: JSON.stringify({
-        object_id: parseInt(form.object_id.value),
+        object_id: objectId,
         name: form.name.value,
         number: form.number.value || null,
         type: form.type.value
