@@ -262,26 +262,33 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
-    const { premise_id, serial, name, power_kw, elements, manufacture_date, status } = req.body;
+
+    const { premise_id, serial, name, power_kw, power_w, elements, heating_element, 
+            manufacture_date, decommission_date, inventory_number, voltage_v, 
+            protection_type, installation_location, status } = req.body;
     if (!premise_id || !name) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Premise ID and name required' });
     }
-    
+
     // Auto-generate sticker number
     const stickerResult = await client.query(
       'SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) + 1 as next_num FROM stickers'
     );
     const nextStickerNum = String(stickerResult.rows[0].next_num).padStart(3, '0');
-    
+
     const heaterResult = await client.query(
-      `INSERT INTO heaters (premise_id, serial, name, power_kw, elements, manufacture_date, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [premise_id, serial || null, name, power_kw || null, elements || null, manufacture_date || null, status || 'active']
+      `INSERT INTO heaters (premise_id, serial, name, power_kw, power_w, elements, heating_element,
+            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
+            installation_location, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+      [premise_id, serial || null, name, power_kw || null, power_w || null, elements || null, 
+       heating_element || null, manufacture_date || null, decommission_date || null, 
+       inventory_number || null, voltage_v || 220, protection_type || null, 
+       installation_location || null, status || 'active']
     );
     const heater = heaterResult.rows[0];
-    
+
     await client.query(
       'INSERT INTO stickers (heater_id, number, electrician_id) VALUES ($1, $2, $3)',
       [heater.id, nextStickerNum, req.user.id]
@@ -308,10 +315,12 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
+
     const { id } = req.params;
-    const { premise_id, serial, name, power_kw, elements, manufacture_date, status, photo_url } = req.body;
-    
+    const { premise_id, serial, name, power_kw, power_w, elements, heating_element,
+            manufacture_date, decommission_date, inventory_number, voltage_v,
+            protection_type, installation_location, status, photo_url } = req.body;
+
     // Get current heater data
     const currentResult = await client.query('SELECT * FROM heaters WHERE id = $1', [id]);
     if (currentResult.rows.length === 0) {
@@ -319,16 +328,16 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
       return res.status(404).json({ error: 'Heater not found' });
     }
     const current = currentResult.rows[0];
-    
+
     const updates = [];
     const params = [];
     let paramIndex = 1;
-    
+
     if (premise_id !== undefined && premise_id !== current.premise_id) {
       updates.push(`premise_id = $${paramIndex++}`);
       params.push(premise_id);
       await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment) 
+        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
         [id, req.user.id, current.premise_id, premise_id, `Moved from ${current.premise_id} to ${premise_id}`]
       );
@@ -336,28 +345,35 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
     if (serial !== undefined) { updates.push(`serial = $${paramIndex++}`); params.push(serial); }
     if (name !== undefined) { updates.push(`name = $${paramIndex++}`); params.push(name); }
     if (power_kw !== undefined) { updates.push(`power_kw = $${paramIndex++}`); params.push(power_kw); }
+    if (power_w !== undefined) { updates.push(`power_w = $${paramIndex++}`); params.push(power_w); }
     if (elements !== undefined) { updates.push(`elements = $${paramIndex++}`); params.push(elements); }
+    if (heating_element !== undefined) { updates.push(`heating_element = $${paramIndex++}`); params.push(heating_element); }
     if (manufacture_date !== undefined) { updates.push(`manufacture_date = $${paramIndex++}`); params.push(manufacture_date); }
+    if (decommission_date !== undefined) { updates.push(`decommission_date = $${paramIndex++}`); params.push(decommission_date); }
+    if (inventory_number !== undefined) { updates.push(`inventory_number = $${paramIndex++}`); params.push(inventory_number); }
+    if (voltage_v !== undefined) { updates.push(`voltage_v = $${paramIndex++}`); params.push(voltage_v); }
+    if (protection_type !== undefined) { updates.push(`protection_type = $${paramIndex++}`); params.push(protection_type); }
+    if (installation_location !== undefined) { updates.push(`installation_location = $${paramIndex++}`); params.push(installation_location); }
     if (photo_url !== undefined) { updates.push(`photo_url = $${paramIndex++}`); params.push(photo_url); }
-    
+
     if (status !== undefined && status !== current.status) {
       updates.push(`status = $${paramIndex++}`);
       params.push(status);
       await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment) 
+        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
          VALUES ($1, $2, 'status_change', $3, $4, $5)`,
         [id, req.user.id, current.status, status, `Status changed from ${current.status} to ${status}`]
       );
     }
-    
+
     updates.push(`updated_at = CURRENT_TIMESTAMP`);
     params.push(id);
-    
+
     const result = await client.query(
       `UPDATE heaters SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
       params
     );
-    
+
     await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
