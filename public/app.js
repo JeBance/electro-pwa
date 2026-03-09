@@ -806,16 +806,20 @@ function showHistoryModal(heaterId) {
 // Admin functions
 async function loadAdminData() {
   try {
-    const [users, objects, premises] = await Promise.all([
+    const [usersData, objectsData, premisesData] = await Promise.all([
       api('/users'),
       api('/objects'),
       api('/premises')
     ]);
-    
+
+    // Обновляем глобальные массивы
+    objects = objectsData;
+    premises = premisesData;
+
     // Render users
     const usersList = $('#users-list');
     if (usersList) {
-      usersList.innerHTML = users.map(u => `
+      usersList.innerHTML = usersData.map(u => `
         <div class="settings-item">
           <span class="settings-item-label">${u.login} (${getRoleName(u.role)})</span>
           <select onchange="updateUserRole(${u.id}, this.value)" ${u.id === currentUser.id ? 'disabled' : ''}>
@@ -826,22 +830,22 @@ async function loadAdminData() {
         </div>
       `).join('');
     }
-    
+
     // Render objects
     const objectsList = $('#objects-list');
     if (objectsList) {
-      objectsList.innerHTML = objects.map(o => `
+      objectsList.innerHTML = objectsData.map(o => `
         <div class="settings-item">
           <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}</span>
           <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">Удалить</button>
         </div>
       `).join('');
     }
-    
+
     // Render premises
     const premisesList = $('#premises-list');
     if (premisesList) {
-      premisesList.innerHTML = premises.map(p => `
+      premisesList.innerHTML = premisesData.map(p => `
         <div class="settings-item">
           <span class="settings-item-label">${p.name} (${p.object_name || '?'})</span>
           <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">Удалить</button>
@@ -955,9 +959,13 @@ async function deleteObject(id) {
   }
 }
 
-function showAddPremiseModal() {
+async function showAddPremiseModal() {
+  // Загружаем объекты если пустые
+  if (objects.length === 0) {
+    await loadData();
+  }
   const objectsHtml = objects.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
-  
+
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Добавить помещение</div>
