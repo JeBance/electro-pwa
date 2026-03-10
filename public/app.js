@@ -322,11 +322,22 @@ function renderPremisesView() {
   return html;
 }
 
+function getHeaterIcon(protectionType) {
+  const icons = {
+    'Конвектор': '⚡',
+    'Радиатор масляный': '💧',
+    'Тепловая завеса': '🌪️',
+    'Тепловая пушка': '🌬️'
+  };
+  return icons[protectionType] || '🔥';
+}
+
 function renderHeaterItem(h) {
   const sticker = h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span> ` : '';
+  const icon = getHeaterIcon(h.protection_type);
   return `
     <div class="list-item" onclick="showHeaterDetail(${h.id})">
-      <div class="list-item-icon">🔥</div>
+      <div class="list-item-icon">${icon}</div>
       <div class="list-item-content">
         <div class="list-item-title">${sticker}${h.name}</div>
         <div class="list-item-subtitle">${h.serial || 'Б/Н'} • ${h.power_w ? h.power_w + ' Вт' : ''}</div>
