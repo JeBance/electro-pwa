@@ -810,6 +810,8 @@ function updatePremisesSelect(objectId) {
 
 async function handleAddHeater(e) {
   e.preventDefault();
+  e.stopPropagation();
+  
   const form = e.target;
   const objectId = parseInt(form.object_id.value);
   
@@ -854,15 +856,18 @@ async function handleAddHeater(e) {
   try {
     const response = await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
     console.log('Create response:', response);
+    showToast('Обогреватель добавлен');
   } catch (err) {
     console.error('Create error:', err);
     showToast('Ошибка: ' + err.message);
   } finally {
-    // Always close modal and refresh data
-    closeModal();
+    // Close modal and refresh
+    const modal = $('.modal-overlay');
+    if (modal) {
+      modal.remove();
+    }
     await loadData();
     render();
-    showToast('Обогреватель добавлен');
   }
 }
 
@@ -1078,6 +1083,8 @@ function showEditHeaterModal(id) {
 
 async function handleEditHeater(e, id) {
   e.preventDefault();
+  e.stopPropagation();
+  
   const form = e.target;
   const status = form.status.value;
   let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
@@ -1114,15 +1121,18 @@ async function handleEditHeater(e, id) {
     });
 
     console.log('Save response:', response);
+    showToast('Изменения сохранены');
   } catch (err) {
     console.error('Save error:', err);
     showToast('Ошибка: ' + err.message);
   } finally {
-    // Always close modal and refresh data
-    closeModal();
+    // Close modal and refresh
+    const modal = $('.modal-overlay');
+    if (modal) {
+      modal.remove();
+    }
     await loadData();
     render();
-    showToast('Изменения сохранены');
   }
 }
 
