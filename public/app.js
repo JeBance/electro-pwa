@@ -645,11 +645,17 @@ function showAddHeaterModal() {
       </div>
       <div class="input-group">
         <label>Статус</label>
-        <select name="status">
+        <select name="status" onchange="toggleMoveField(this.value)">
           <option value="active">Активен</option>
           <option value="repair">В ремонте</option>
           <option value="warehouse">На складе</option>
           <option value="moved">Перемещён</option>
+        </select>
+      </div>
+      <div class="input-group" id="move-premise-group" style="display:none">
+        <label>Новое помещение</label>
+        <select name="move_premise_id" id="move-premise-select">
+          <option value="">Выберите помещение</option>
         </select>
       </div>
       <div class="photo-upload">
@@ -664,6 +670,9 @@ function showAddHeaterModal() {
   
   // Загружаем следующий номер наклейки
   loadNextStickerNumber();
+  
+  // Инициализируем поле перемещения
+  setTimeout(() => toggleMoveField('active'), 0);
 }
 
 async function loadNextStickerNumber() {
@@ -681,6 +690,45 @@ async function loadNextStickerNumber() {
     }
   } catch (err) {
     console.error('Failed to load sticker number:', err);
+  }
+}
+
+function toggleMoveField(status) {
+  const group = $('#move-premise-group');
+  const select = $('#move-premise-select');
+  if (group && select) {
+    if (status === 'moved') {
+      group.style.display = 'block';
+      select.required = true;
+      // Заполняем список помещений
+      const currentObjectId = localStorage.getItem('last_object_id');
+      const filtered = premises.filter(p => !currentObjectId || p.object_id == currentObjectId);
+      select.innerHTML = '<option value="">Выберите помещение</option>' +
+        filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    } else {
+      group.style.display = 'none';
+      select.required = false;
+      select.value = '';
+    }
+  }
+}
+
+function toggleEditMoveField(status, currentPremiseId) {
+  const group = $('#edit-move-premise-group');
+  const select = $('#edit-move-premise-select');
+  if (group && select) {
+    if (status === 'moved') {
+      group.style.display = 'block';
+      select.required = true;
+      // Не показываем текущее помещение в списке
+      const filtered = premises.filter(p => p.id !== currentPremiseId);
+      select.innerHTML = '<option value="">Выберите помещение</option>' +
+        filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    } else {
+      group.style.display = 'none';
+      select.required = false;
+      select.value = '';
+    }
   }
 }
 
@@ -718,9 +766,17 @@ async function handleAddHeater(e) {
   // Сохраняем последний выбранный объект
   localStorage.setItem('last_object_id', objectId);
 
+  const status = form.status.value;
+  let premiseId = parseInt(form.premise_id.value);
+  
+  // Если статус "Перемещён", используем новое помещение
+  if (status === 'moved' && form.move_premise_id.value) {
+    premiseId = parseInt(form.move_premise_id.value);
+  }
+
   const data = {
     object_id: objectId,
-    premise_id: parseInt(form.premise_id.value),
+    premise_id: premiseId,
     name: form.name.value,
     serial: form.serial.value || null,
     sticker_number: form.sticker_number.value || null,
@@ -730,7 +786,7 @@ async function handleAddHeater(e) {
     protection_type: form.protection_type.value || 'Конвектор',
     manufacture_date: form.manufacture_date.value || null,
     decommission_date: form.decommission_date.value || null,
-    status: form.status.value
+    status: status
   };
 
   try {
@@ -940,23 +996,43 @@ function showEditHeaterModal(id) {
       </div>
       <div class="input-group">
         <label>Статус</label>
-        <select name="status">
+        <select name="status" onchange="toggleEditMoveField(this.value, ${heater.premise_id})">
           <option value="active" ${heater.status === 'active' ? 'selected' : ''}>Активен</option>
           <option value="repair" ${heater.status === 'repair' ? 'selected' : ''}>В ремонте</option>
           <option value="warehouse" ${heater.status === 'warehouse' ? 'selected' : ''}>На складе</option>
           <option value="moved" ${heater.status === 'moved' ? 'selected' : ''}>Перемещён</option>
         </select>
       </div>
+      <div class="input-group" id="edit-move-premise-group" style="display:none">
+        <label>Новое помещение</label>
+        <select name="move_premise_id" id="edit-move-premise-select">
+          <option value="">Выберите помещение</option>
+          ${premisesHtml}
+        </select>
+      </div>
       <button type="submit" class="btn btn-primary">Сохранить</button>
     </form>
   `);
+  
+  // Показываем поле перемещения если статус уже "moved"
+  if (heater.status === 'moved') {
+    setTimeout(() => toggleEditMoveField('moved', heater.premise_id), 0);
+  }
 }
 
 async function handleEditHeater(e, id) {
   e.preventDefault();
   const form = e.target;
+  const status = form.status.value;
+  let premiseId = parseInt(form.premise_id.value);
+  
+  // Если статус "Перемещён", используем новое помещение
+  if (status === 'moved' && form.move_premise_id.value) {
+    premiseId = parseInt(form.move_premise_id.value);
+  }
+
   const data = {
-    premise_id: parseInt(form.premise_id.value),
+    premise_id: premiseId,
     name: form.name.value,
     serial: form.serial.value || null,
     voltage_v: parseInt(form.voltage_v.value) || 220,
@@ -965,7 +1041,7 @@ async function handleEditHeater(e, id) {
     protection_type: form.protection_type.value,
     manufacture_date: form.manufacture_date.value || null,
     decommission_date: form.decommission_date.value || null,
-    status: form.status.value
+    status: status
   };
 
   try {
