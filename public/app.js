@@ -1001,28 +1001,28 @@ function updatePremiseStatus() {
 async function handleAddHeater(e) {
   e.preventDefault();
   e.stopPropagation();
-  
+
   console.log('handleAddHeater called');
-  
-  const form = e.currentTarget || e.target;
+
+  const form = e.target.closest('form');
   console.log('Form element:', form);
-  
+
   if (!form) {
     console.error('Form not found');
     return;
   }
-  
+
   const objectId = parseInt(form.object_id?.value);
-  
+
   if (!objectId) {
     showToast('Ошибка: выберите объект');
     return;
   }
-  
+
   // Сохраняем последний выбранный объект и помещение
   const premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
   localStorage.setItem('last_object_id', objectId);
-  
+
   // Если помещение не выбрано — сохраняем как "на склад"
   if (!premiseId) {
     localStorage.removeItem('last_premise_id');
@@ -1032,7 +1032,7 @@ async function handleAddHeater(e) {
 
   // Статус берём из формы (он уже обновлён автоматически если помещение не выбрано)
   let status = form.status?.value;
-  
+
   // Если помещение не выбрано — принудительно ставим статус "warehouse"
   if (!premiseId) {
     status = 'warehouse';
@@ -1042,7 +1042,7 @@ async function handleAddHeater(e) {
   if (status === 'moved' && form.move_premise_id?.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
-  
+
   // Если статус "На складе", убираем помещение
   if (status === 'warehouse') {
     premiseId = null;
@@ -1051,7 +1051,7 @@ async function handleAddHeater(e) {
   const heaterData = {
     object_id: objectId,
     premise_id: premiseId,
-    name: form.name?.value,
+    name: form.name?.value || '',
     serial: form.serial?.value || null,
     sticker_number: form.sticker_number?.value || null,
     voltage_v: parseInt(form.voltage_v?.value) || 220,
@@ -1071,7 +1071,7 @@ async function handleAddHeater(e) {
     // Offline: create optimistic record in cache with full data
     const selectedObject = objects.find(o => o.id === objectId);
     const selectedPremise = premises.find(p => p.id === premiseId);
-    
+
     const newHeater = {
       id: 'local_' + Date.now(), // Temporary local ID
       ...heaterData,
@@ -1080,10 +1080,10 @@ async function handleAddHeater(e) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
-    
+
     // Add to local cache immediately
     await db.heaters.add(newHeater);
-    
+
     // Queue for sync with local ID reference
     await db.syncQueue.add({
       action: '/heaters',
@@ -1093,10 +1093,10 @@ async function handleAddHeater(e) {
       timestamp: Date.now(),
       localId: newHeater.id
     });
-    
+
     // Update global array
     heaters.push(newHeater);
-    
+
     // Close modal and refresh UI
     const modal = document.querySelector('.modal-overlay');
     if (modal) {
@@ -1107,21 +1107,21 @@ async function handleAddHeater(e) {
   } else {
     // Online: normal API call
     try {
-      const response = await api('/heaters', { 
-        method: 'POST', 
-        body: JSON.stringify(heaterData) 
+      const response = await api('/heaters', {
+        method: 'POST',
+        body: JSON.stringify(heaterData)
       });
-      
+
       // Close modal
       const modal = document.querySelector('.modal-overlay');
       if (modal) {
         modal.remove();
       }
-      
+
       // Refresh data
       await loadData();
       render();
-      
+
       showToast('Обогреватель добавлен');
     } catch (err) {
       console.error('Create error:', err);
