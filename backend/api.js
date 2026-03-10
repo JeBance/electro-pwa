@@ -618,7 +618,7 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
       params.push(null);
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
-         VALUES ($1, $2, 'premise_change', $3, $4, $5, $6)`,
+         VALUES ($1, $2, 'premise_change', $3, $4, $5, $6, $7)`,
         [id, req.user.id, current.premise_id, null, current.status, 'warehouse', 'Обогреватель перемещён на склад']
       );
     }
