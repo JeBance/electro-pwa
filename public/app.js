@@ -277,14 +277,20 @@ function renderHeaters() {
 
 function renderPremisesView() {
   const premiseMap = new Map();
+  const warehouseHeaters = [];
+  
   heaters.forEach(h => {
-    const key = h.premise_id || 0;
-    if (!premiseMap.has(key)) premiseMap.set(key, []);
-    premiseMap.get(key).push(h);
+    if (h.status === 'warehouse') {
+      warehouseHeaters.push(h);
+    } else {
+      const key = h.premise_id || 0;
+      if (!premiseMap.has(key)) premiseMap.set(key, []);
+      premiseMap.get(key).push(h);
+    }
   });
-  
+
   let html = '';
-  
+
   // Group without premise
   const noPremise = premiseMap.get(0) || [];
   if (noPremise.length > 0) {
@@ -293,12 +299,12 @@ function renderPremisesView() {
       ${noPremise.map(h => renderHeaterItem(h)).join('')}
     </div>`;
   }
-  
+
   // Group by premise
   premises.forEach(p => {
     const items = premiseMap.get(p.id) || [];
     if (items.length === 0) return;
-    
+
     html += `
       <div class="card">
         <div class="card-header">
@@ -309,7 +315,20 @@ function renderPremisesView() {
       </div>
     `;
   });
-  
+
+  // Warehouse block
+  if (warehouseHeaters.length > 0) {
+    html += `
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📦 Склад</span>
+          <span class="card-subtitle">${warehouseHeaters.length} шт.</span>
+        </div>
+        ${warehouseHeaters.map(h => renderHeaterItem(h)).join('')}
+      </div>
+    `;
+  }
+
   if (!html) {
     html = `
       <div class="empty-state">
@@ -318,7 +337,7 @@ function renderPremisesView() {
       </div>
     `;
   }
-  
+
   return html;
 }
 
@@ -1055,6 +1074,11 @@ async function handleEditHeater(e, id) {
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id.value) {
     premiseId = parseInt(form.move_premise_id.value);
+  }
+  
+  // Если статус "На складе", убираем помещение
+  if (status === 'warehouse') {
+    premiseId = null;
   }
 
   const data = {

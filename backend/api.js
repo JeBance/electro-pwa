@@ -348,14 +348,48 @@ router.post('/premises', authMiddleware(['admin', 'electrician']), async (req, r
 });
 
 router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
+  const client = await getClient();
   try {
+    await client.query('BEGIN');
+    
     const { id } = req.params;
-    // Soft delete
-    await query('UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+    
+    // Find all heaters in this premise and move them to warehouse
+    const heatersResult = await client.query(
+      'SELECT id FROM heaters WHERE premise_id = $1 AND deleted_at IS NULL',
+      [id]
+    );
+    
+    for (const heater of heatersResult.rows) {
+      // Get current heater status
+      const heaterStatus = await client.query('SELECT status FROM heaters WHERE id = $1', [heater.id]);
+      const currentStatus = heaterStatus.rows[0].status;
+      
+      // Update heater status to warehouse
+      await client.query(
+        'UPDATE heaters SET premise_id = NULL, status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        ['warehouse', heater.id]
+      );
+      
+      // Log the event
+      await client.query(
+        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
+         VALUES ($1, $2, 'premise_change', $3, $4, $5, $6)`,
+        [heater.id, req.user.id, id, null, currentStatus, 'warehouse', 'Помещение удалено - обогреватель перемещён на склад']
+      );
+    }
+    
+    // Soft delete the premise
+    await client.query('UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+    
+    await client.query('COMMIT');
     res.status(204).send();
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Delete premise error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -556,6 +590,17 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
         [id, req.user.id, current.premise_id, premise_id, `Moved from ${current.premise_id} to ${premise_id}`]
+      );
+    }
+    
+    // If status changed to warehouse, also clear premise_id
+    if (status === 'warehouse' && current.status !== 'warehouse' && current.premise_id !== null) {
+      updates.push(`premise_id = $${paramIndex++}`);
+      params.push(null);
+      await client.query(
+        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
+         VALUES ($1, $2, 'premise_change', $3, $4, $5, $6)`,
+        [id, req.user.id, current.premise_id, null, current.status, 'warehouse', 'Перемещён на склад']
       );
     }
     if (serial !== undefined) { updates.push(`serial = $${paramIndex++}`); params.push(serial); }
