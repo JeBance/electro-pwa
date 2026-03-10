@@ -304,12 +304,21 @@ function renderPremisesView() {
   premises.forEach(p => {
     const items = premiseMap.get(p.id) || [];
     if (items.length === 0) return;
+    
+    const hasNote = p.note && p.note.trim() !== '';
+    const notePreview = hasNote ? p.note.substring(0, 50) + (p.note.length > 50 ? '...' : '') : '';
 
     html += `
       <div class="card">
         <div class="card-header">
-          <span class="card-title">${p.name}</span>
-          <span class="card-subtitle">${p.number || ''}</span>
+          <div style="flex:1">
+            <span class="card-title">${p.name}</span>
+            <span class="card-subtitle">${p.number || ''}</span>
+            ${hasNote ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">📝 ${notePreview}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-secondary btn-small" onclick="showPremiseNoteModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.note ? p.note.replace(/'/g, "\\'") : ''}')" title="Заметка">📝</button>
+          </div>
         </div>
         ${items.map(h => renderHeaterItem(h)).join('')}
       </div>
@@ -1162,6 +1171,59 @@ async function handleEditHeater(e, id) {
   }
 }
 
+function showPremiseNoteModal(premiseId, premiseName, currentNote) {
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Заметка: ${premiseName}</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="input-group">
+      <textarea name="note" rows="5" placeholder="Введите заметку..." style="width:100%;padding:12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:14px;resize:vertical">${currentNote || ''}</textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="savePremiseNote(${premiseId})" style="flex:1">Сохранить</button>
+      ${currentNote ? `<button class="btn btn-danger" onclick="deletePremiseNote(${premiseId})" style="flex:1">Удалить</button>` : ''}
+    </div>
+  `);
+}
+
+async function savePremiseNote(premiseId) {
+  const modal = document.querySelector('.modal-overlay');
+  const textarea = modal?.querySelector('textarea[name="note"]');
+  const note = textarea?.value || '';
+
+  try {
+    await api(`/premises/${premiseId}/note`, {
+      method: 'PUT',
+      body: JSON.stringify({ note })
+    });
+
+    closeModal();
+    showToast('Заметка сохранена');
+    await loadData();
+    render();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message);
+  }
+}
+
+async function deletePremiseNote(premiseId) {
+  if (!confirm('Удалить заметку?')) return;
+
+  try {
+    await api(`/premises/${premiseId}/note`, {
+      method: 'DELETE'
+    });
+
+    closeModal();
+    showToast('Заметка удалена');
+    await loadData();
+    render();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message);
+  }
+}
+
 function showHistoryModal(heaterId) {
   const heater = heaters.find(h => h.id === heaterId);
   showModal(`
@@ -1654,3 +1716,6 @@ window.setFilter = setFilter;
 window.renderHeaters = renderHeaters;
 window.handleEditHeater = handleEditHeater;
 window.handleAddHeater = handleAddHeater;
+window.showPremiseNoteModal = showPremiseNoteModal;
+window.savePremiseNote = savePremiseNote;
+window.deletePremiseNote = deletePremiseNote;

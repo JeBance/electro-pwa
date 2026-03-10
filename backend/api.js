@@ -406,6 +406,41 @@ router.post('/premises/:id/restore', authMiddleware(['admin']), async (req, res)
   }
 });
 
+// Update premise note
+router.put('/premises/:id/note', authMiddleware(['admin', 'electrician']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+    
+    const result = await query(
+      'UPDATE premises SET note = $1 WHERE id = $2 RETURNING *',
+      [note || null, id]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update premise note error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete premise note
+router.delete('/premises/:id/note', authMiddleware(['admin', 'electrician']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    await query(
+      'UPDATE premises SET note = NULL WHERE id = $1',
+      [id]
+    );
+    
+    res.status(204).send();
+  } catch (err) {
+    console.error('Delete premise note error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Heaters
 router.get('/heaters', authMiddleware(), async (req, res) => {
   try {
