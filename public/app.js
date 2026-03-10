@@ -1652,3 +1652,5 @@ window.saveUserObjects = saveUserObjects;
 window.toggleSort = toggleSort;
 window.setFilter = setFilter;
 window.renderHeaters = renderHeaters;
+window.handleEditHeater = handleEditHeater;
+window.handleAddHeater = handleAddHeater;
