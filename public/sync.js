@@ -61,6 +61,20 @@ const SyncManager = {
       if (response.ok) {
         const result = await response.json();
         console.log('Sync completed:', result);
+        
+        // Update local records with server IDs
+        if (result.idMapping) {
+          for (const [localId, serverId] of Object.entries(result.idMapping)) {
+            console.log('Updating local ID', localId, 'to server ID', serverId);
+            // Update heaters table
+            const heater = await this.db.heaters.get(localId);
+            if (heater) {
+              await this.db.heaters.delete(localId);
+              await this.db.heaters.put({ ...heater, id: serverId });
+            }
+          }
+        }
+        
         await this.db.syncQueue.clear();
         console.log('Sync queue cleared');
         

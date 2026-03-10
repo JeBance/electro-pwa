@@ -1058,7 +1058,6 @@ router.post('/upload', authMiddleware(['admin', 'electrician']), upload.single('
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 // Sync endpoint for offline operations
 router.post('/sync', authMiddleware(), async (req, res) => {
   const client = await getClient();
@@ -1067,9 +1066,10 @@ router.post('/sync', authMiddleware(), async (req, res) => {
 
     const { operations } = req.body;
     const results = [];
+    const idMapping = {}; // localId -> serverId mapping
 
     for (const op of operations) {
-      const { action, endpoint, method, data } = op;
+      const { action, endpoint, method, data, localId } = op;
 
       try {
         // Log the operation
@@ -1078,17 +1078,19 @@ router.post('/sync', authMiddleware(), async (req, res) => {
           [req.user.id, action, JSON.stringify(data)]
         );
 
+        let serverId = null;
+
         // Execute the actual operation based on endpoint
         if (endpoint.startsWith('/heaters/')) {
           const heaterId = endpoint.split('/')[2];
-          
+
           if (method === 'PUT') {
             const { premise_id, name, serial, voltage_v, power_w, heating_element,
                     protection_type, manufacture_date, decommission_date, status } = data;
-            
+
             await client.query(
-              `UPDATE heaters SET 
-                premise_id = $1, name = $2, serial = $3, voltage_v = $4, 
+              `UPDATE heaters SET
+                premise_id = $1, name = $2, serial = $3, voltage_v = $4,
                 power_w = $5, heating_element = $6, protection_type = $7,
                 manufacture_date = $8, decommission_date = $9, status = $10,
                 updated_at = CURRENT_TIMESTAMP
@@ -1096,27 +1098,63 @@ router.post('/sync', authMiddleware(), async (req, res) => {
               [premise_id, name, serial, voltage_v, power_w, heating_element,
                protection_type, manufacture_date, decommission_date, status, heaterId]
             );
+            serverId = heaterId;
           } else if (method === 'DELETE') {
             await client.query(
               'UPDATE heaters SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
               [heaterId]
             );
+            serverId = heaterId;
           }
+        } else if (endpoint === '/heaters' && method === 'POST') {
+          // Create new heater
+          const { premise_id, serial, name, power_kw, power_w, elements, heating_element,
+                  manufacture_date, decommission_date, inventory_number, voltage_v,
+                  protection_type, installation_location, status, sticker_number } = data;
+          
+          // Auto-generate sticker number if not provided
+          let nextStickerNum = sticker_number;
+          if (!nextStickerNum) {
+            const stickerResult = await client.query(
+              'SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) + 1 as next_num FROM stickers'
+            );
+            nextStickerNum = String(stickerResult.rows[0].next_num).padStart(3, '0');
+          }
+          
+          const heaterResult = await client.query(
+            `INSERT INTO heaters (premise_id, serial, name, power_kw, power_w, elements, heating_element,
+                  manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
+                  installation_location, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+            [premise_id, serial || null, name, power_kw || null, power_w || null, elements || null, 
+             heating_element || null, manufacture_date || null, decommission_date || null, 
+             inventory_number || null, voltage_v || 220, protection_type || null,
+             installation_location || null, status || 'active']
+          );
+          serverId = heaterResult.rows[0].id;
+          
+          // Create sticker record
+          await client.query(
+            'INSERT INTO stickers (heater_id, number, electrician_id) VALUES ($1, $2, $3)',
+            [serverId, nextStickerNum, req.user.id]
+          );
         } else if (endpoint.startsWith('/premises/')) {
           const parts = endpoint.split('/');
           const premiseId = parts[2];
-          
+
           if (parts[4] === 'note') {
             if (method === 'PUT') {
               await client.query(
                 'UPDATE premises SET note = $1 WHERE id = $2',
                 [data.note, premiseId]
               );
+              serverId = premiseId;
             } else if (method === 'DELETE') {
               await client.query(
                 'UPDATE premises SET note = NULL WHERE id = $1',
                 [premiseId]
               );
+              serverId = premiseId;
             }
           } else if (method === 'PUT') {
             const { object_id, name, number, type } = data;
@@ -1124,38 +1162,54 @@ router.post('/sync', authMiddleware(), async (req, res) => {
               'UPDATE premises SET object_id = $1, name = $2, number = $3, type = $4 WHERE id = $5',
               [object_id, name, number, type, premiseId]
             );
+            serverId = premiseId;
           } else if (method === 'DELETE') {
             await client.query(
               'UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
               [premiseId]
             );
+            serverId = premiseId;
           }
         } else if (endpoint.startsWith('/objects/')) {
           const objectId = endpoint.split('/')[2];
-          
+
           if (method === 'PUT') {
             const { name, code } = data;
             await client.query(
               'UPDATE objects SET name = $1, code = $2 WHERE id = $3',
               [name, code, objectId]
             );
+            serverId = objectId;
           } else if (method === 'DELETE') {
             await client.query(
               'UPDATE objects SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
               [objectId]
             );
+            serverId = objectId;
           }
         }
 
-        results.push({ action, success: true });
+        // Store ID mapping for local IDs
+        if (localId && serverId) {
+          idMapping[localId] = serverId;
+          // Update local heater record with server ID
+          if (localId.startsWith('local_')) {
+            await client.query(
+              'UPDATE heaters SET id = $1 WHERE id = $2',
+              [serverId, localId]
+            );
+          }
+        }
+
+        results.push({ action, success: true, localId, serverId });
       } catch (opErr) {
         console.error(`Sync operation failed for ${action}:`, opErr);
-        results.push({ action, success: false, error: opErr.message });
+        results.push({ action, success: false, error: opErr.message, localId });
       }
     }
 
     await client.query('COMMIT');
-    res.json({ results, synced: results.filter(r => r.success).length });
+    res.json({ results, synced: results.filter(r => r.success).length, idMapping });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Sync error:', err);

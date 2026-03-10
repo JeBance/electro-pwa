@@ -949,7 +949,7 @@ async function handleAddHeater(e) {
   if (!isOnline) {
     // Offline: create optimistic record in cache
     const newHeater = {
-      id: Date.now(), // Temporary ID
+      id: 'local_' + Date.now(), // Temporary local ID
       ...heaterData,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -958,7 +958,7 @@ async function handleAddHeater(e) {
     // Add to local cache immediately
     await db.heaters.add(newHeater);
     
-    // Queue for sync
+    // Queue for sync with local ID reference
     await db.syncQueue.add({
       action: '/heaters',
       endpoint: '/heaters',
@@ -1005,8 +1005,20 @@ async function handleAddHeater(e) {
 }
 
 async function showHeaterDetail(id) {
-  // Загружаем актуальные данные из API
-  const heater = await api(`/heaters/${id}`);
+  // Try to find heater in local cache first
+  let heater = heaters.find(h => h.id === id);
+  
+  // If not found (e.g., offline-created heater), load from API
+  if (!heater) {
+    try {
+      heater = await api(`/heaters/${id}`);
+    } catch (err) {
+      console.error('Failed to load heater:', err);
+      showToast('Ошибка загрузки данных');
+      return;
+    }
+  }
+  
   if (!heater) return;
 
   selectedHeater = heater;
