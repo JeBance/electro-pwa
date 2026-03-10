@@ -1106,8 +1106,13 @@ async function showHeaterDetail(id) {
   // Try to find heater in local cache first
   let heater = heaters.find(h => h.id === id);
   
-  // If not found (e.g., offline-created heater), load from API
+  // If not found in global array, try IndexedDB (for offline-created heaters)
   if (!heater) {
+    heater = await db.heaters.get(id);
+  }
+  
+  // If still not found, try to load from API
+  if (!heater && navigator.onLine) {
     try {
       heater = await api(`/heaters/${id}`);
     } catch (err) {
@@ -1116,12 +1121,17 @@ async function showHeaterDetail(id) {
       return;
     }
   }
-  
-  if (!heater) return;
+
+  if (!heater) {
+    showToast('Обогреватель не найден');
+    return;
+  }
 
   selectedHeater = heater;
-  const premise = premises.find(p => p.id === heater.premise_id);
-  const obj = objects.find(o => o.id === premise?.object_id);
+  
+  // Find related data (may be null for offline-created heaters)
+  const premise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
+  const obj = premise?.object_id ? objects.find(o => o.id === premise.object_id) : null;
 
   // Формируем заголовок: Инв. № - Название
   const stickerTitle = heater.sticker_number ? `${heater.sticker_number} - ` : '';
@@ -1135,11 +1145,11 @@ async function showHeaterDetail(id) {
     <div class="detail-grid">
       <div class="detail-item">
         <div class="detail-label">Объект</div>
-        <div class="detail-value">${obj?.name || '—'}</div>
+        <div class="detail-value">${obj?.name || (heater.object_id ? 'Загрузка...' : '—')}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Помещение</div>
-        <div class="detail-value">${premise?.name || '—'}</div>
+        <div class="detail-value">${premise?.name || (heater.premise_id ? 'Загрузка...' : '—')}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Инв. №</div>
@@ -1155,7 +1165,7 @@ async function showHeaterDetail(id) {
       </div>
       <div class="detail-item">
         <div class="detail-label">Мощность, Вт</div>
-        <div class="detail-value">${heater.power_w || (heater.power_kw ? Math.round(heater.power_kw * 1000) : '—')}</div>
+        <div class="detail-value">${heater.power_w || '—'}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Нагревательный элемент</div>
@@ -1218,130 +1228,145 @@ async function loadHeaterEvents(heaterId) {
 }
 
 async function showEditHeaterModal(id) {
-  try {
-    // Загружаем актуальные данные из API
-    const heater = await api(`/heaters/${id}`);
-    if (!heater) return;
-
-    const premise = premises.find(p => p.id === heater.premise_id);
-    
-    // Загружаем объекты если пустые
-    if (objects.length === 0) {
-      await loadData();
+  // Try to find heater in local cache first
+  let heater = heaters.find(h => h.id === id);
+  
+  // If not found in global array, try IndexedDB (for offline-created heaters)
+  if (!heater) {
+    heater = await db.heaters.get(id);
+  }
+  
+  // If still not found and online, try to load from API
+  if (!heater && navigator.onLine) {
+    try {
+      heater = await api(`/heaters/${id}`);
+    } catch (err) {
+      console.error('Failed to load heater:', err);
+      showToast('Ошибка загрузки данных');
+      return;
     }
-    
-    const objectsHtml = objects.map(o =>
-      `<option value="${o.id}" ${o.id === premise?.object_id ? 'selected' : ''}>${o.name}</option>`
-    ).join('');
+  }
+  
+  if (!heater) {
+    showToast('Обогреватель не найден');
+    return;
+  }
 
-    const premisesHtml = premises
-      .filter(p => p.object_id === premise?.object_id)
-      .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`)
-      .join('');
+  const premise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
 
-    // Форматируем даты для input type="date" (требуется YYYY-MM-DD)
-    const formatDateForInput = (dateStr) => {
-      if (!dateStr) return '';
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return '';
-      return date.toISOString().split('T')[0];
-    };
+  // Load objects if not available
+  if (objects.length === 0) {
+    await loadData();
+  }
 
-    const manufactureDateInput = formatDateForInput(heater.manufacture_date);
-    const decommissionDateInput = formatDateForInput(heater.decommission_date);
+  const objectsHtml = objects.map(o =>
+    `<option value="${o.id}" ${o.id === premise?.object_id ? 'selected' : ''}>${o.name}</option>`
+  ).join('');
 
-    // Дата вывода по умолчанию (+10 лет от даты изготовления)
-    let defaultDecommission = decommissionDateInput;
-    if (!defaultDecommission && heater.manufacture_date) {
-      const date = new Date(heater.manufacture_date);
-      date.setFullYear(date.getFullYear() + 10);
-      defaultDecommission = date.toISOString().split('T')[0];
-    }
+  const premisesHtml = premise?.object_id
+    ? premises.filter(p => p.object_id === premise.object_id)
+        .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`).join('')
+    : '';
 
-    showModal(`
-      <div class="modal-header">
-        <div class="modal-title">Редактировать</div>
-        <button class="modal-close" onclick="closeModal()">×</button>
+  // Форматируем даты для input type="date" (требуется YYYY-MM-DD)
+  const formatDateForInput = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    return date.toISOString().split('T')[0];
+  };
+
+  const manufactureDateInput = formatDateForInput(heater.manufacture_date);
+  const decommissionDateInput = formatDateForInput(heater.decommission_date);
+
+  // Дата вывода по умолчанию (+10 лет от даты изготовления)
+  let defaultDecommission = decommissionDateInput;
+  if (!defaultDecommission && heater.manufacture_date) {
+    const date = new Date(heater.manufacture_date);
+    date.setFullYear(date.getFullYear() + 10);
+    defaultDecommission = date.toISOString().split('T')[0];
+  }
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Редактировать</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="handleEditHeater(event, ${id})">
+      <div class="input-group">
+        <label>Объект</label>
+        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
+          <option value="">Объект</option>
+          ${objectsHtml}
+        </select>
       </div>
-      <form onsubmit="handleEditHeater(event, ${id})">
-        <div class="input-group">
-          <label>Объект</label>
-          <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
-            <option value="">Объект</option>
-            ${objectsHtml}
-          </select>
-        </div>
-        <div class="input-group">
-          <label>Помещение</label>
-          <select name="premise_id" id="premise-select-edit">
-            <option value="">Без помещения (на склад)</option>
-            ${premisesHtml}
-          </select>
-        </div>
-        <div class="input-group">
-          <label>Марка, наименование</label>
-          <input type="text" name="name" value="${heater.name}" required>
-        </div>
-        <div class="input-group">
-          <label>Заводской №</label>
-          <input type="text" name="serial" value="${heater.serial || ''}">
-        </div>
-        <div class="input-group">
-          <label>Напряжение, В</label>
-          <input type="number" name="voltage_v" value="${heater.voltage_v || 220}">
-        </div>
-        <div class="input-group">
-          <label>Мощность, Вт</label>
-          <input type="number" name="power_w" value="${heater.power_w || ''}">
-        </div>
-        <div class="input-group">
-          <label>Нагревательный элемент</label>
-          <input type="text" name="heating_element" value="${heater.heating_element || 'ТЭН'}">
-        </div>
-        <div class="input-group">
-          <label>Исполнение (тип защиты)</label>
-          <select name="protection_type">
-            <option value="Конвектор" ${heater.protection_type === 'Конвектор' ? 'selected' : ''}>Конвектор</option>
-            <option value="Радиатор масляный" ${heater.protection_type === 'Радиатор масляный' ? 'selected' : ''}>Радиатор масляный</option>
-            <option value="Тепловая завеса" ${heater.protection_type === 'Тепловая завеса' ? 'selected' : ''}>Тепловая завеса</option>
-            <option value="Тепловая пушка" ${heater.protection_type === 'Тепловая пушка' ? 'selected' : ''}>Тепловая пушка</option>
-          </select>
-        </div>
-        <div class="input-group">
-          <label>Дата изготовления</label>
-          <input type="date" name="manufacture_date" value="${manufactureDateInput}" onchange="updateEditDecommissionDate(this.value)">
-        </div>
-        <div class="input-group">
-          <label>Дата вывода из эксплуатации</label>
-          <input type="date" name="decommission_date" value="${defaultDecommission}" id="edit-decommission-date">
-        </div>
-        <div class="input-group">
-          <label>Статус</label>
-          <select name="status" onchange="toggleEditMoveField(this.value, ${heater.premise_id})">
-            <option value="active" ${heater.status === 'active' ? 'selected' : ''}>Активен</option>
-            <option value="repair" ${heater.status === 'repair' ? 'selected' : ''}>В ремонте</option>
-            <option value="warehouse" ${heater.status === 'warehouse' ? 'selected' : ''}>На складе</option>
-            <option value="moved" ${heater.status === 'moved' ? 'selected' : ''}>Перемещён</option>
-          </select>
-        </div>
-        <div class="input-group" id="edit-move-premise-group" style="display:none">
-          <label>Новое помещение</label>
-          <select name="move_premise_id" id="edit-move-premise-select">
-            <option value="">Выберите помещение</option>
-            ${premisesHtml}
-          </select>
-        </div>
-        <button type="submit" class="btn btn-primary">Сохранить</button>
-      </form>
-    `);
+      <div class="input-group">
+        <label>Помещение</label>
+        <select name="premise_id" id="premise-select-edit">
+          <option value="">Без помещения (на склад)</option>
+          ${premisesHtml}
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Марка, наименование</label>
+        <input type="text" name="name" value="${heater.name}" required>
+      </div>
+      <div class="input-group">
+        <label>Заводской №</label>
+        <input type="text" name="serial" value="${heater.serial || ''}">
+      </div>
+      <div class="input-group">
+        <label>Напряжение, В</label>
+        <input type="number" name="voltage_v" value="${heater.voltage_v || 220}">
+      </div>
+      <div class="input-group">
+        <label>Мощность, Вт</label>
+        <input type="number" name="power_w" value="${heater.power_w || ''}">
+      </div>
+      <div class="input-group">
+        <label>Нагревательный элемент</label>
+        <input type="text" name="heating_element" value="${heater.heating_element || 'ТЭН'}">
+      </div>
+      <div class="input-group">
+        <label>Исполнение (тип защиты)</label>
+        <select name="protection_type">
+          <option value="Конвектор" ${heater.protection_type === 'Конвектор' ? 'selected' : ''}>Конвектор</option>
+          <option value="Радиатор масляный" ${heater.protection_type === 'Радиатор масляный' ? 'selected' : ''}>Радиатор масляный</option>
+          <option value="Тепловая завеса" ${heater.protection_type === 'Тепловая завеса' ? 'selected' : ''}>Тепловая завеса</option>
+          <option value="Тепловая пушка" ${heater.protection_type === 'Тепловая пушка' ? 'selected' : ''}>Тепловая пушка</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Дата изготовления</label>
+        <input type="date" name="manufacture_date" value="${manufactureDateInput}" onchange="updateEditDecommissionDate(this.value)">
+      </div>
+      <div class="input-group">
+        <label>Дата вывода из эксплуатации</label>
+        <input type="date" name="decommission_date" value="${defaultDecommission}" id="edit-decommission-date">
+      </div>
+      <div class="input-group">
+        <label>Статус</label>
+        <select name="status" onchange="toggleEditMoveField(this.value, ${heater.premise_id || ''})">
+          <option value="active" ${heater.status === 'active' ? 'selected' : ''}>Активен</option>
+          <option value="repair" ${heater.status === 'repair' ? 'selected' : ''}>В ремонте</option>
+          <option value="warehouse" ${heater.status === 'warehouse' ? 'selected' : ''}>На складе</option>
+          <option value="moved" ${heater.status === 'moved' ? 'selected' : ''}>Перемещён</option>
+        </select>
+      </div>
+      <div class="input-group" id="edit-move-premise-group" style="display:none">
+        <label>Новое помещение</label>
+        <select name="move_premise_id" id="edit-move-premise-select">
+          <option value="">Выберите помещение</option>
+          ${premisesHtml}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+  `);
 
-    // Показываем поле перемещения если статус уже "moved"
-    if (heater.status === 'moved') {
-      setTimeout(() => toggleEditMoveField('moved', heater.premise_id), 0);
-    }
-  } catch (err) {
-    console.error('Failed to load heater for edit:', err);
-    showToast('Ошибка загрузки данных: ' + err.message);
+  // Показываем поле перемещения если статус уже "moved"
+  if (heater.status === 'moved') {
+    setTimeout(() => toggleEditMoveField('moved', heater.premise_id), 0);
   }
 }
 
