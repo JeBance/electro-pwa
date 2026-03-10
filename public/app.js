@@ -893,14 +893,15 @@ async function handleAddHeater(e) {
   }
 }
 
-function showHeaterDetail(id) {
-  const heater = heaters.find(h => h.id === id);
+async function showHeaterDetail(id) {
+  // Загружаем актуальные данные из API
+  const heater = await api(`/heaters/${id}`);
   if (!heater) return;
 
   selectedHeater = heater;
   const premise = premises.find(p => p.id === heater.premise_id);
   const obj = objects.find(o => o.id === premise?.object_id);
-  
+
   // Формируем заголовок: Инв. № - Название
   const stickerTitle = heater.sticker_number ? `${heater.sticker_number} - ` : '';
 
@@ -956,8 +957,6 @@ function showHeaterDetail(id) {
         <div class="detail-value">${getStatusBadge(heater.status)}</div>
       </div>
     </div>
-    <div class="admin-section-title">История</div>
-    <div id="heater-events" class="timeline"></div>
   `;
 
   if (currentUser?.role !== 'commander') {
@@ -968,9 +967,8 @@ function showHeaterDetail(id) {
       </div>
     `;
   }
-  
+
   showModal(html);
-  loadHeaterEvents(heater.id);
 }
 
 async function loadHeaterEvents(heaterId) {
@@ -1020,9 +1018,20 @@ async function showEditHeaterModal(id) {
       .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`)
       .join('');
 
+    // Форматируем даты для input type="date" (требуется YYYY-MM-DD)
+    const formatDateForInput = (dateStr) => {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
+      return date.toISOString().split('T')[0];
+    };
+
+    const manufactureDateInput = formatDateForInput(heater.manufacture_date);
+    const decommissionDateInput = formatDateForInput(heater.decommission_date);
+
     // Дата вывода по умолчанию (+10 лет от даты изготовления)
-    let defaultDecommission = '';
-    if (heater.manufacture_date) {
+    let defaultDecommission = decommissionDateInput;
+    if (!defaultDecommission && heater.manufacture_date) {
       const date = new Date(heater.manufacture_date);
       date.setFullYear(date.getFullYear() + 10);
       defaultDecommission = date.toISOString().split('T')[0];
@@ -1079,11 +1088,11 @@ async function showEditHeaterModal(id) {
         </div>
         <div class="input-group">
           <label>Дата изготовления</label>
-          <input type="date" name="manufacture_date" value="${heater.manufacture_date || ''}" onchange="updateEditDecommissionDate(this.value)">
+          <input type="date" name="manufacture_date" value="${manufactureDateInput}" onchange="updateEditDecommissionDate(this.value)">
         </div>
         <div class="input-group">
           <label>Дата вывода из эксплуатации</label>
-          <input type="date" name="decommission_date" value="${heater.decommission_date || defaultDecommission}" id="edit-decommission-date">
+          <input type="date" name="decommission_date" value="${defaultDecommission}" id="edit-decommission-date">
         </div>
         <div class="input-group">
           <label>Статус</label>
@@ -1182,6 +1191,11 @@ async function handleEditHeater(e, id) {
     await loadData();
     render();
 
+    // Refresh heater detail card if open
+    if (selectedHeater && selectedHeater.id === id) {
+      await showHeaterDetail(id);
+    }
+
     showToast('Изменения сохранены');
   } catch (err) {
     console.error('Save error:', err);
@@ -1249,18 +1263,9 @@ function showHistoryModal(heaterId) {
       <div class="modal-title">История: ${heater?.name}</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
-    <div id="history-timeline" class="timeline"></div>
+    <div id="heater-events" class="timeline"></div>
   `);
   loadHeaterEvents(heaterId);
-  setTimeout(() => {
-    const container = $('#heater-events');
-    if (container) {
-      const timeline = $('#history-timeline');
-      if (timeline && container.innerHTML) {
-        timeline.innerHTML = container.innerHTML;
-      }
-    }
-  }, 100);
 }
 
 // Admin functions
