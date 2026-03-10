@@ -99,9 +99,9 @@ async function api(endpoint, options = {}) {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
   };
-  
+
   const isOnline = navigator.onLine;
-  
+
   // For offline, queue the operation
   if (!isOnline && options.method !== 'GET') {
     await db.syncQueue.add({
@@ -114,7 +114,7 @@ async function api(endpoint, options = {}) {
     showToast('Офлайн: операция сохранена в очередь');
     return { offline: true };
   }
-  
+
   try {
     const res = await fetch(`${API_BASE}/api${endpoint}`, { ...options, headers });
     if (res.status === 401) {
@@ -129,6 +129,19 @@ async function api(endpoint, options = {}) {
     if (!res.ok) throw new Error(data.error || 'Request failed');
     return data;
   } catch (err) {
+    // Handle network errors (Failed to fetch) - queue for offline sync
+    if (options.method !== 'GET' && (err.message === 'Failed to fetch' || !navigator.onLine)) {
+      await db.syncQueue.add({
+        action: endpoint,
+        endpoint,
+        method: options.method,
+        data: options.body ? JSON.parse(options.body) : null,
+        timestamp: Date.now()
+      });
+      showToast('Офлайн: операция сохранена в очередь');
+      return { offline: true };
+    }
+    
     if (!isOnline && options.method === 'GET') {
       // Return cached data for GET requests
       return await getCachedData(endpoint);
@@ -1225,15 +1238,22 @@ async function savePremiseNote(premiseId) {
   const note = textarea?.value || '';
 
   try {
-    await api(`/premises/${premiseId}/note`, {
+    const response = await api(`/premises/${premiseId}/note`, {
       method: 'PUT',
       body: JSON.stringify({ note })
     });
 
-    closeModal();
-    showToast('Заметка сохранена');
-    await loadData();
-    render();
+    if (response.offline) {
+      // Operation queued for sync - close modal but don't refresh
+      closeModal();
+      showToast('Заметка сохранена (синхронизация при подключении)');
+    } else {
+      // Operation completed successfully
+      closeModal();
+      showToast('Заметка сохранена');
+      await loadData();
+      render();
+    }
   } catch (err) {
     showToast('Ошибка: ' + err.message);
   }
@@ -1243,14 +1263,21 @@ async function deletePremiseNote(premiseId) {
   if (!confirm('Удалить заметку?')) return;
 
   try {
-    await api(`/premises/${premiseId}/note`, {
+    const response = await api(`/premises/${premiseId}/note`, {
       method: 'DELETE'
     });
 
-    closeModal();
-    showToast('Заметка удалена');
-    await loadData();
-    render();
+    if (response.offline) {
+      // Operation queued for sync
+      closeModal();
+      showToast('Заметка удалена (синхронизация при подключении)');
+    } else {
+      // Operation completed successfully
+      closeModal();
+      showToast('Заметка удалена');
+      await loadData();
+      render();
+    }
   } catch (err) {
     showToast('Ошибка: ' + err.message);
   }
