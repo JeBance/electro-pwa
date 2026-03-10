@@ -202,16 +202,18 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
   try {
     const { premise_id, status, search } = req.query;
     let sql = `
-      SELECT h.*, p.name as premise_name, p.number as premise_number, 
-             o.name as object_name, o.id as object_id
+      SELECT h.*, p.name as premise_name, p.number as premise_number,
+             o.name as object_name, o.id as object_id,
+             s.number as sticker_number
       FROM heaters h
       LEFT JOIN premises p ON h.premise_id = p.id
       LEFT JOIN objects o ON p.object_id = o.id
+      LEFT JOIN stickers s ON h.id = s.heater_id
       WHERE 1=1
     `;
     const params = [];
     let paramIndex = 1;
-    
+
     if (premise_id) {
       sql += ` AND h.premise_id = $${paramIndex}`;
       params.push(premise_id);
@@ -223,12 +225,12 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
       paramIndex++;
     }
     if (search) {
-      sql += ` AND (h.name ILIKE $${paramIndex} OR h.serial ILIKE $${paramIndex})`;
+      sql += ` AND (h.name ILIKE $${paramIndex} OR h.serial ILIKE $${paramIndex} OR s.number ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
     sql += ' ORDER BY o.name, p.name, h.name';
-    
+
     const result = await query(sql, params);
     res.json(result.rows);
   } catch (err) {
@@ -241,11 +243,13 @@ router.get('/heaters/:id', authMiddleware(), async (req, res) => {
   try {
     const { id } = req.params;
     const result = await query(`
-      SELECT h.*, p.name as premise_name, p.number as premise_number, 
-             o.name as object_name, o.id as object_id
+      SELECT h.*, p.name as premise_name, p.number as premise_number,
+             o.name as object_name, o.id as object_id,
+             s.number as sticker_number
       FROM heaters h
       LEFT JOIN premises p ON h.premise_id = p.id
       LEFT JOIN objects o ON p.object_id = o.id
+      LEFT JOIN stickers s ON h.id = s.heater_id
       WHERE h.id = $1
     `, [id]);
     if (result.rows.length === 0) {
