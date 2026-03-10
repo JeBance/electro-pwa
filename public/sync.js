@@ -70,22 +70,27 @@ const SyncManager = {
             // Get the local heater first
             const heater = await this.db.heaters.get(localId);
             if (heater) {
-              // Update all fields with server data, but keep the new server ID
-              await this.db.heaters.put({ ...heater, id: serverId });
+              // Delete the old local record
+              await this.db.heaters.delete(localId);
+              // Create new record with server ID (use add to preserve the ID)
+              delete heater.id;  // Remove id to let add() use the one we specify
+              await this.db.heaters.add({ ...heater, id: serverId });
               console.log('Updated heater', localId, '→', serverId);
             } else {
-              console.warn('Heater not found for local ID', localId);
+              console.log('Heater not found for local ID', localId, '- may already be synced');
             }
             
             // Update stickers table if heater was updated
             const stickers = await this.db.stickers.where('heater_id').equals(localId).toArray();
             for (const sticker of stickers) {
+              await this.db.stickers.delete(sticker.id);
               await this.db.stickers.put({ ...sticker, heater_id: serverId });
             }
             
             // Update events table if heater was updated
             const events = await this.db.events.where('heater_id').equals(localId).toArray();
             for (const event of events) {
+              await this.db.events.delete(event.id);
               await this.db.events.put({ ...event, heater_id: serverId });
             }
           }

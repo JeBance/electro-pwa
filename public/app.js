@@ -274,11 +274,11 @@ async function loadData() {
     const cachedStickers = await db.stickers.toArray();
     const cachedEvents = await db.events.toArray();
     
-    // Use cached data immediately
-    if (cachedHeaters.length > 0) heaters = cachedHeaters;
-    if (cachedPremises.length > 0) premises = cachedPremises;
-    if (cachedObjects.length > 0) objects = cachedObjects;
-    if (cachedUsers.length > 0) users = cachedUsers;
+    // Use cached data immediately - REPLACE global arrays
+    heaters = cachedHeaters.length > 0 ? cachedHeaters : [];
+    premises = cachedPremises.length > 0 ? cachedPremises : [];
+    objects = cachedObjects.length > 0 ? cachedObjects : [];
+    users = cachedUsers.length > 0 ? cachedUsers : [];
     
     // Try to sync with server in background if online
     if (navigator.onLine) {
@@ -296,19 +296,19 @@ async function loadData() {
         ]);
 
         if (heatersRes.ok) {
-          heaters = await heatersRes.json();
+          heaters = await heatersRes.json();  // REPLACE array
           await cacheData('/heaters', heaters);
         }
         if (premisesRes.ok) {
-          premises = await premisesRes.json();
+          premises = await premisesRes.json();  // REPLACE array
           await cacheData('/premises', premises);
         }
         if (objectsRes.ok) {
-          objects = await objectsRes.json();
+          objects = await objectsRes.json();  // REPLACE array
           await cacheData('/objects', objects);
         }
         if (usersRes.ok) {
-          users = await usersRes.json();
+          users = await usersRes.json();  // REPLACE array
           await cacheData('/users', users);
         }
         if (stickersRes.ok) {
