@@ -848,10 +848,7 @@ async function handleAddHeater(e) {
     closeModal();
     showToast('Обогреватель добавлен');
     await loadData();
-    // Обновляем текущий вид
-    if (currentView === 'heaters') {
-      renderHeaters();
-    }
+    render();
   } catch (err) {
     showToast(err.message);
   }
@@ -1101,10 +1098,7 @@ async function handleEditHeater(e, id) {
     closeModal();
     showToast('Изменения сохранены');
     await loadData();
-    // Обновляем текущий вид
-    if (currentView === 'heaters') {
-      renderHeaters();
-    }
+    render();
   } catch (err) {
     showToast(err.message);
   }
