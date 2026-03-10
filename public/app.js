@@ -922,7 +922,7 @@ async function handleAddHeater(e) {
     premiseId = null;
   }
 
-  const data = {
+  const heaterData = {
     object_id: objectId,
     premise_id: premiseId,
     name: form.name?.value,
@@ -937,27 +937,65 @@ async function handleAddHeater(e) {
     status: status
   };
 
-  console.log('Creating heater:', data);
+  console.log('Creating heater:', heaterData);
 
-  try {
-    const response = await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
-    console.log('Create response:', response);
+  const isOnline = navigator.onLine;
+
+  if (!isOnline) {
+    // Offline: create optimistic record in cache
+    const newHeater = {
+      id: Date.now(), // Temporary ID
+      ...heaterData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
     
-    // Close modal immediately after successful save
+    // Add to local cache immediately
+    await db.heaters.add(newHeater);
+    
+    // Queue for sync
+    await db.syncQueue.add({
+      action: '/heaters',
+      endpoint: '/heaters',
+      method: 'POST',
+      data: heaterData,
+      timestamp: Date.now(),
+      localId: newHeater.id
+    });
+    
+    // Update global array
+    heaters.push(newHeater);
+    
+    // Close modal and refresh UI
     const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
-      console.log('Modal removed');
     }
-    
-    // Refresh data
-    await loadData();
     render();
-    
-    showToast('Обогреватель добавлен');
-  } catch (err) {
-    console.error('Create error:', err);
-    showToast('Ошибка: ' + err.message);
+    showToast('Обогреватель добавлен (синхронизация при подключении)');
+  } else {
+    // Online: normal API call
+    try {
+      const response = await api('/heaters', { 
+        method: 'POST', 
+        body: JSON.stringify(heaterData) 
+      });
+      
+      // Close modal
+      const modal = document.querySelector('.modal-overlay');
+      if (modal) {
+        modal.remove();
+      }
+      
+      // Refresh data
+      await loadData();
+      render();
+      
+      showToast('Обогреватель добавлен');
+    } catch (err) {
+      console.error('Create error:', err);
+      showToast('Ошибка: ' + err.message);
+    }
   }
 }
 
@@ -1292,50 +1330,96 @@ async function savePremiseNote(premiseId) {
   const textarea = modal?.querySelector('textarea[name="note"]');
   const note = textarea?.value || '';
 
-  try {
-    const response = await api(`/premises/${premiseId}/note`, {
-      method: 'PUT',
-      body: JSON.stringify({ note })
-    });
+  const isOnline = navigator.onLine;
 
-    if (response.offline) {
-      // Operation queued for sync - close modal but don't refresh
-      closeModal();
-      showToast('Заметка сохранена (синхронизация при подключении)');
-    } else {
-      // Operation completed successfully
-      closeModal();
-      showToast('Заметка сохранена');
-      await loadData();
-      render();
+  if (!isOnline) {
+    // Offline: update local cache immediately
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
+    if (premiseIndex !== -1) {
+      premises[premiseIndex].note = note;
+      await db.premises.update(premiseId, { note });
     }
-  } catch (err) {
-    showToast('Ошибка: ' + err.message);
+    
+    // Queue for sync
+    await db.syncQueue.add({
+      action: `/premises/${premiseId}/note`,
+      endpoint: `/premises/${premiseId}/note`,
+      method: 'PUT',
+      data: { note },
+      timestamp: Date.now()
+    });
+    
+    closeModal();
+    render();
+    showToast('Заметка сохранена (синхронизация при подключении)');
+  } else {
+    // Online: normal API call
+    try {
+      const response = await api(`/premises/${premiseId}/note`, {
+        method: 'PUT',
+        body: JSON.stringify({ note })
+      });
+
+      if (response.offline) {
+        closeModal();
+        showToast('Заметка сохранена (синхронизация при подключении)');
+      } else {
+        closeModal();
+        showToast('Заметка сохранена');
+        await loadData();
+        render();
+      }
+    } catch (err) {
+      showToast('Ошибка: ' + err.message);
+    }
   }
 }
 
 async function deletePremiseNote(premiseId) {
   if (!confirm('Удалить заметку?')) return;
 
-  try {
-    const response = await api(`/premises/${premiseId}/note`, {
-      method: 'DELETE',
-      silent: true  // Silent mode for background operations
-    });
+  const isOnline = navigator.onLine;
 
-    if (response.offline) {
-      // Operation queued for sync
-      closeModal();
-      showToast('Заметка удалена (синхронизация при подключении)');
-    } else {
-      // Operation completed successfully
-      closeModal();
-      showToast('Заметка удалена');
-      await loadData();
-      render();
+  if (!isOnline) {
+    // Offline: update local cache immediately
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
+    if (premiseIndex !== -1) {
+      premises[premiseIndex].note = null;
+      await db.premises.update(premiseId, { note: null });
     }
-  } catch (err) {
-    showToast('Ошибка: ' + err.message);
+    
+    // Queue for sync
+    await db.syncQueue.add({
+      action: `/premises/${premiseId}/note`,
+      endpoint: `/premises/${premiseId}/note`,
+      method: 'DELETE',
+      data: null,
+      timestamp: Date.now()
+    });
+    
+    closeModal();
+    render();
+    showToast('Заметка удалена (синхронизация при подключении)');
+  } else {
+    // Online: normal API call
+    try {
+      const response = await api(`/premises/${premiseId}/note`, {
+        method: 'DELETE',
+        silent: true
+      });
+
+      if (response.offline) {
+        closeModal();
+        showToast('Заметка удалена (синхронизация при подключении)');
+      } else {
+        closeModal();
+        showToast('Заметка удалена');
+        await loadData();
+        render();
+      }
+    } catch (err) {
+      showToast('Ошибка: ' + err.message);
+    }
   }
 }
 
