@@ -1266,15 +1266,21 @@ async function showUserObjectsModal(userId, userName) {
       api('/objects'),
       api(`/users/${userId}/objects`)
     ]);
-    
+
     const userObjectIds = new Set(userObjects.map(o => o.object_id));
-    const objectsHtml = allObjects.map(o => `
-      <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
-        <input type="checkbox" name="object_${o.id}" ${userObjectIds.has(o.object_id) ? 'checked' : ''} value="${o.id}">
-        ${o.name}${o.code ? ` (${o.code})` : ''}
-      </label>
-    `).join('');
     
+    let objectsHtml;
+    if (allObjects.length === 0) {
+      objectsHtml = '<div style="padding:16px 0;color:var(--text-secondary)">Нет объектов</div>';
+    } else {
+      objectsHtml = allObjects.map(o => `
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
+          <input type="checkbox" name="object_${o.id}" ${userObjectIds.has(o.object_id) ? 'checked' : ''} value="${o.id}">
+          ${o.name}${o.code ? ` (${o.code})` : ''}
+        </label>
+      `).join('');
+    }
+
     showModal(`
       <div class="modal-header">
         <div class="modal-title">Объекты: ${userName}</div>
@@ -1286,25 +1292,41 @@ async function showUserObjectsModal(userId, userName) {
       <button class="btn btn-primary" onclick="saveUserObjects(${userId})">Сохранить</button>
     `);
   } catch (err) {
-    showToast(err.message);
+    console.error('showUserObjectsModal error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 
+// Make functions globally accessible for onclick handlers
+window.showUserObjectsModal = showUserObjectsModal;
+window.saveUserObjects = saveUserObjects;
+
 async function saveUserObjects(userId) {
   const modal = $('.modal-overlay');
+  if (!modal) {
+    showToast('Ошибка: модальное окно не найдено');
+    return;
+  }
+  
   const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
   const objectIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-  
+
+  console.log('Saving user objects:', { userId, objectIds });
+
   try {
-    await api(`/users/${userId}/objects`, {
+    const response = await api(`/users/${userId}/objects`, {
       method: 'PUT',
       body: JSON.stringify({ object_ids: objectIds })
     });
+    
+    console.log('Save response:', response);
+    
     closeModal();
     showToast('Права доступа обновлены');
-    loadAdminData();
+    await loadAdminData();
   } catch (err) {
-    showToast(err.message);
+    console.error('saveUserObjects error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 
