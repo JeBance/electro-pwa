@@ -1055,8 +1055,16 @@ async function handleAddHeater(e) {
 
   if (!isOnline) {
     try {
-      const selectedObject = objects.find(o => o.id === objectId);
-      const selectedPremise = premises.find(p => p.id === premiseId);
+      // Find object and premise in array or IndexedDB
+      let selectedObject = objects.find(o => o.id === objectId);
+      if (!selectedObject) {
+        selectedObject = await db.objects.get(objectId);
+      }
+
+      let selectedPremise = premiseId ? premises.find(p => p.id === premiseId) : null;
+      if (!selectedPremise && premiseId) {
+        selectedPremise = await db.premises.get(premiseId);
+      }
 
       const newHeater = {
         id: 'local_' + Date.now(),
@@ -1975,19 +1983,49 @@ function showAddObjectModal() {
 async function handleAddObject(e) {
   e.preventDefault();
   const form = e.target;
-  try {
-    await api('/objects', {
+  const isOnline = navigator.onLine;
+
+  const objectData = {
+    name: form.name.value,
+    code: form.code.value || null
+  };
+
+  if (!isOnline) {
+    // Offline: create in IndexedDB
+    const newObject = {
+      id: 'local_' + Date.now(),
+      ...objectData,
+      deleted_at: null
+    };
+
+    await db.objects.add(newObject);
+    objects.push(newObject);
+
+    await db.syncQueue.add({
+      action: '/objects',
+      endpoint: '/objects',
       method: 'POST',
-      body: JSON.stringify({
-        name: form.name.value,
-        code: form.code.value || null
-      })
+      data: objectData,
+      timestamp: Date.now(),
+      localId: newObject.id
     });
+
     closeModal();
-    showToast('Объект добавлен');
-    loadAdminData();
-  } catch (err) {
-    showToast(err.message);
+    render();
+    showToast('Добавлен (ожидает сети)');
+  } else {
+    // Online: API call
+    try {
+      await api('/objects', {
+        method: 'POST',
+        body: JSON.stringify(objectData)
+      });
+      closeModal();
+      showToast('Объект добавлен');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message);
+    }
   }
 }
 
@@ -2014,19 +2052,45 @@ function showEditObjectModal(objectId, name, code) {
 async function handleEditObject(e, objectId) {
   e.preventDefault();
   const form = e.target;
-  try {
-    await api(`/objects/${objectId}`, {
+  const isOnline = navigator.onLine;
+
+  const objectData = {
+    name: form.name.value,
+    code: form.code.value || null
+  };
+
+  if (!isOnline) {
+    // Offline: update IndexedDB
+    const objIndex = objects.findIndex(o => o.id === objectId);
+    if (objIndex !== -1) {
+      objects[objIndex] = { ...objects[objIndex], ...objectData };
+      await db.objects.put(objects[objIndex]);
+    }
+
+    await db.syncQueue.add({
+      action: `/objects/${objectId}`,
+      endpoint: `/objects/${objectId}`,
       method: 'PUT',
-      body: JSON.stringify({
-        name: form.name.value,
-        code: form.code.value || null
-      })
+      data: objectData,
+      timestamp: Date.now()
     });
+
     closeModal();
-    showToast('Объект обновлён');
-    loadAdminData();
-  } catch (err) {
-    showToast(err.message);
+    render();
+    showToast('Обновлён (ожидает сети)');
+  } else {
+    // Online: API call
+    try {
+      await api(`/objects/${objectId}`, {
+        method: 'PUT',
+        body: JSON.stringify(objectData)
+      });
+      closeModal();
+      showToast('Объект обновлён');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message);
+    }
   }
 }
 
@@ -2097,15 +2161,23 @@ async function showAddPremiseModal() {
 async function handleAddPremise(e) {
   e.preventDefault();
   const form = e.target;
-  
+
   const isOnline = navigator.onLine;
+  const objectId = parseInt(form.object_id.value);
+  
+  // Find object in array or IndexedDB (for offline-created objects)
+  let selectedObject = objects.find(o => o.id === objectId);
+  if (!selectedObject) {
+    selectedObject = await db.objects.get(objectId);
+  }
+
   const premiseData = {
-    object_id: parseInt(form.object_id.value),
+    object_id: objectId,
     name: form.name.value,
     number: form.number.value || null,
     type: form.type.value
   };
-  
+
   // Сохраняем последний выбранный объект
   localStorage.setItem('last_object_id', premiseData.object_id);
 
@@ -2114,12 +2186,12 @@ async function handleAddPremise(e) {
     const newPremise = {
       id: 'local_' + Date.now(),
       ...premiseData,
-      object_name: objects.find(o => o.id === premiseData.object_id)?.name || 'Unknown'
+      object_name: selectedObject?.name || 'Unknown'
     };
-    
+
     // Add to local cache immediately
     await db.premises.add(newPremise);
-    
+
     // Queue for sync
     await db.syncQueue.add({
       action: '/premises',
@@ -2129,13 +2201,13 @@ async function handleAddPremise(e) {
       timestamp: Date.now(),
       localId: newPremise.id
     });
-    
+
     // Update global array
     premises.push(newPremise);
-    
+
     closeModal();
     render();
-    showToast('Помещение добавлено (синхронизация при подключении)');
+    showToast('Помещение добавлено (ожидает сети)');
   } else {
     // Online: normal API call
     try {
@@ -2199,21 +2271,53 @@ function showEditPremiseModal(premiseId, name, number, type, objectId) {
 async function handleEditPremise(e, premiseId) {
   e.preventDefault();
   const form = e.target;
-  try {
-    await api(`/premises/${premiseId}`, {
+  const isOnline = navigator.onLine;
+
+  const premiseData = {
+    object_id: parseInt(form.object_id.value),
+    name: form.name.value,
+    number: form.number.value || null,
+    type: form.type.value
+  };
+
+  if (!isOnline) {
+    // Offline: update IndexedDB
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
+    if (premiseIndex !== -1) {
+      // Find object name for display
+      const selectedObject = objects.find(o => o.id === premiseData.object_id) || await db.objects.get(premiseData.object_id);
+      premises[premiseIndex] = { 
+        ...premises[premiseIndex], 
+        ...premiseData,
+        object_name: selectedObject?.name || 'Unknown'
+      };
+      await db.premises.put(premises[premiseIndex]);
+    }
+
+    await db.syncQueue.add({
+      action: `/premises/${premiseId}`,
+      endpoint: `/premises/${premiseId}`,
       method: 'PUT',
-      body: JSON.stringify({
-        object_id: parseInt(form.object_id.value),
-        name: form.name.value,
-        number: form.number.value || null,
-        type: form.type.value
-      })
+      data: premiseData,
+      timestamp: Date.now()
     });
+
     closeModal();
-    showToast('Помещение обновлено');
-    loadAdminData();
-  } catch (err) {
-    showToast(err.message);
+    render();
+    showToast('Обновлено (ожидает сети)');
+  } else {
+    // Online: API call
+    try {
+      await api(`/premises/${premiseId}`, {
+        method: 'PUT',
+        body: JSON.stringify(premiseData)
+      });
+      closeModal();
+      showToast('Помещение обновлено');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message);
+    }
   }
 }
 
