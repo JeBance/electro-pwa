@@ -1138,6 +1138,15 @@ router.post('/sync', authMiddleware(), async (req, res) => {
             'INSERT INTO stickers (heater_id, number, electrician_id) VALUES ($1, $2, $3)',
             [serverId, nextStickerNum, req.user.id]
           );
+        } else if (endpoint === '/premises' && method === 'POST') {
+          // Create new premise
+          const { object_id, name, number, type } = data;
+          const premiseResult = await client.query(
+            `INSERT INTO premises (object_id, name, number, type)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [object_id, name, number || null, type || 'wagon']
+          );
+          serverId = premiseResult.rows[0].id;
         } else if (endpoint.startsWith('/premises/')) {
           const parts = endpoint.split('/');
           const premiseId = parts[2];

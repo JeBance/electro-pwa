@@ -1045,10 +1045,15 @@ async function handleAddHeater(e) {
   const isOnline = navigator.onLine;
 
   if (!isOnline) {
-    // Offline: create optimistic record in cache
+    // Offline: create optimistic record in cache with full data
+    const selectedObject = objects.find(o => o.id === objectId);
+    const selectedPremise = premises.find(p => p.id === premiseId);
+    
     const newHeater = {
       id: 'local_' + Date.now(), // Temporary local ID
       ...heaterData,
+      object_name: selectedObject?.name || 'Unknown',
+      premise_name: selectedPremise?.name || 'Без помещения',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -1105,12 +1110,12 @@ async function handleAddHeater(e) {
 async function showHeaterDetail(id) {
   // Try to find heater in local cache first
   let heater = heaters.find(h => h.id === id);
-  
+
   // If not found in global array, try IndexedDB (for offline-created heaters)
   if (!heater) {
     heater = await db.heaters.get(id);
   }
-  
+
   // If still not found, try to load from API
   if (!heater && navigator.onLine) {
     try {
@@ -1128,13 +1133,17 @@ async function showHeaterDetail(id) {
   }
 
   selectedHeater = heater;
-  
+
   // Find related data (may be null for offline-created heaters)
   const premise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
   const obj = premise?.object_id ? objects.find(o => o.id === premise.object_id) : null;
 
   // Формируем заголовок: Инв. № - Название
   const stickerTitle = heater.sticker_number ? `${heater.sticker_number} - ` : '';
+
+  // Get object name from heater data if not found in cache (for offline heaters)
+  const objectName = obj?.name || (heater.object_name || '—');
+  const premiseName = premise?.name || (heater.premise_name || (heater.premise_id ? '—' : '—'));
 
   let html = `
     <div class="modal-header">
@@ -1145,11 +1154,11 @@ async function showHeaterDetail(id) {
     <div class="detail-grid">
       <div class="detail-item">
         <div class="detail-label">Объект</div>
-        <div class="detail-value">${obj?.name || (heater.object_id ? 'Загрузка...' : '—')}</div>
+        <div class="detail-value">${objectName}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Помещение</div>
-        <div class="detail-value">${premise?.name || (heater.premise_id ? 'Загрузка...' : '—')}</div>
+        <div class="detail-value">${premiseName}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Инв. №</div>
@@ -2030,25 +2039,58 @@ async function showAddPremiseModal() {
 async function handleAddPremise(e) {
   e.preventDefault();
   const form = e.target;
-  try {
-    const objectId = parseInt(form.object_id.value);
-    // Сохраняем последний выбранный объект
-    localStorage.setItem('last_object_id', objectId);
+  
+  const isOnline = navigator.onLine;
+  const premiseData = {
+    object_id: parseInt(form.object_id.value),
+    name: form.name.value,
+    number: form.number.value || null,
+    type: form.type.value
+  };
+  
+  // Сохраняем последний выбранный объект
+  localStorage.setItem('last_object_id', premiseData.object_id);
 
-    await api('/premises', {
+  if (!isOnline) {
+    // Offline: create optimistic record in cache
+    const newPremise = {
+      id: 'local_' + Date.now(),
+      ...premiseData,
+      object_name: objects.find(o => o.id === premiseData.object_id)?.name || 'Unknown'
+    };
+    
+    // Add to local cache immediately
+    await db.premises.add(newPremise);
+    
+    // Queue for sync
+    await db.syncQueue.add({
+      action: '/premises',
+      endpoint: '/premises',
       method: 'POST',
-      body: JSON.stringify({
-        object_id: objectId,
-        name: form.name.value,
-        number: form.number.value || null,
-        type: form.type.value
-      })
+      data: premiseData,
+      timestamp: Date.now(),
+      localId: newPremise.id
     });
+    
+    // Update global array
+    premises.push(newPremise);
+    
     closeModal();
-    showToast('Помещение добавлено');
-    loadAdminData();
-  } catch (err) {
-    showToast(err.message);
+    render();
+    showToast('Помещение добавлено (синхронизация при подключении)');
+  } else {
+    // Online: normal API call
+    try {
+      await api('/premises', {
+        method: 'POST',
+        body: JSON.stringify(premiseData)
+      });
+      closeModal();
+      showToast('Помещение добавлено');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message);
+    }
   }
 }
 
