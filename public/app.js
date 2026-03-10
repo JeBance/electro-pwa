@@ -812,8 +812,17 @@ async function handleAddHeater(e) {
   e.preventDefault();
   e.stopPropagation();
   
-  const form = e.target;
-  const objectId = parseInt(form.object_id.value);
+  console.log('handleAddHeater called');
+  
+  const form = e.currentTarget || e.target;
+  console.log('Form element:', form);
+  
+  if (!form) {
+    console.error('Form not found');
+    return;
+  }
+  
+  const objectId = parseInt(form.object_id?.value);
   
   if (!objectId) {
     showToast('Ошибка: выберите объект');
@@ -823,11 +832,11 @@ async function handleAddHeater(e) {
   // Сохраняем последний выбранный объект
   localStorage.setItem('last_object_id', objectId);
 
-  const status = form.status.value;
-  let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
+  const status = form.status?.value;
+  let premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
 
   // Если статус "Перемещён", используем новое помещение
-  if (status === 'moved' && form.move_premise_id.value) {
+  if (status === 'moved' && form.move_premise_id?.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
   
@@ -839,15 +848,15 @@ async function handleAddHeater(e) {
   const data = {
     object_id: objectId,
     premise_id: premiseId,
-    name: form.name.value,
-    serial: form.serial.value || null,
-    sticker_number: form.sticker_number.value || null,
-    voltage_v: parseInt(form.voltage_v.value) || 220,
-    power_w: form.power_w.value ? parseInt(form.power_w.value) : null,
-    heating_element: form.heating_element.value || 'ТЭН',
-    protection_type: form.protection_type.value || 'Конвектор',
-    manufacture_date: form.manufacture_date.value || null,
-    decommission_date: form.decommission_date.value || null,
+    name: form.name?.value,
+    serial: form.serial?.value || null,
+    sticker_number: form.sticker_number?.value || null,
+    voltage_v: parseInt(form.voltage_v?.value) || 220,
+    power_w: form.power_w?.value ? parseInt(form.power_w.value) : null,
+    heating_element: form.heating_element?.value || 'ТЭН',
+    protection_type: form.protection_type?.value || 'Конвектор',
+    manufacture_date: form.manufacture_date?.value || null,
+    decommission_date: form.decommission_date?.value || null,
     status: status
   };
 
@@ -862,9 +871,13 @@ async function handleAddHeater(e) {
     showToast('Ошибка: ' + err.message);
   } finally {
     // Close modal and refresh
-    const modal = $('.modal-overlay');
+    console.log('Closing modal...');
+    const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
+      console.log('Modal removed');
+    } else {
+      console.log('Modal not found');
     }
     await loadData();
     render();
@@ -1084,13 +1097,22 @@ function showEditHeaterModal(id) {
 async function handleEditHeater(e, id) {
   e.preventDefault();
   e.stopPropagation();
+
+  console.log('handleEditHeater called with id:', id);
   
-  const form = e.target;
-  const status = form.status.value;
-  let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
+  const form = e.currentTarget || e.target;
+  console.log('Form element:', form);
+  
+  if (!form) {
+    console.error('Form not found');
+    return;
+  }
+  
+  const status = form.status?.value;
+  let premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
 
   // Если статус "Перемещён", используем новое помещение
-  if (status === 'moved' && form.move_premise_id.value) {
+  if (status === 'moved' && form.move_premise_id?.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
 
@@ -1101,14 +1123,14 @@ async function handleEditHeater(e, id) {
 
   const data = {
     premise_id: premiseId,
-    name: form.name.value,
-    serial: form.serial.value || null,
-    voltage_v: parseInt(form.voltage_v.value) || 220,
-    power_w: form.power_w.value ? parseInt(form.power_w.value) : null,
-    heating_element: form.heating_element.value || 'ТЭН',
-    protection_type: form.protection_type.value,
-    manufacture_date: form.manufacture_date.value || null,
-    decommission_date: form.decommission_date.value || null,
+    name: form.name?.value,
+    serial: form.serial?.value || null,
+    voltage_v: parseInt(form.voltage_v?.value) || 220,
+    power_w: form.power_w?.value ? parseInt(form.power_w.value) : null,
+    heating_element: form.heating_element?.value || 'ТЭН',
+    protection_type: form.protection_type?.value,
+    manufacture_date: form.manufacture_date?.value || null,
+    decommission_date: form.decommission_date?.value || null,
     status: status
   };
 
@@ -1127,9 +1149,13 @@ async function handleEditHeater(e, id) {
     showToast('Ошибка: ' + err.message);
   } finally {
     // Close modal and refresh
-    const modal = $('.modal-overlay');
+    console.log('Closing modal...');
+    const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
+      console.log('Modal removed');
+    } else {
+      console.log('Modal not found');
     }
     await loadData();
     render();
