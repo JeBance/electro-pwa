@@ -741,6 +741,12 @@ function closeModal() {
 
 function showAddHeaterModal() {
   const lastObjectId = localStorage.getItem('last_object_id') || '';
+  
+  // Load objects and premises if not available
+  if (objects.length === 0 || premises.length === 0) {
+    loadData();
+  }
+  
   const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   // Дата вывода по умолчанию (+10 лет от текущей даты)
@@ -833,6 +839,11 @@ function showAddHeaterModal() {
     </form>
   `);
   
+  // Initialize premise select with current object
+  if (lastObjectId) {
+    updatePremisesSelect(lastObjectId);
+  }
+  
   // Загружаем следующий номер наклейки
   loadNextStickerNumber();
   
@@ -918,8 +929,16 @@ function updateEditDecommissionDate(manufactureDate) {
 }
 
 function updatePremisesSelect(objectId) {
-  const select = $('#premise-select');
-  if (!select) return;
+  const select = document.getElementById('premise-select');
+  if (!select) {
+    console.error('premise-select element not found');
+    return;
+  }
+  
+  if (!objectId) {
+    select.innerHTML = '<option value="">Сначала выберите объект</option>';
+    return;
+  }
   
   const filtered = premises.filter(p => p.object_id == objectId);
   select.innerHTML = '<option value="">Без помещения (на склад)</option>' +
@@ -1966,6 +1985,11 @@ async function handleAddPremise(e) {
 }
 
 function showEditPremiseModal(premiseId, name, number, type, objectId) {
+  // Load objects if not available
+  if (objects.length === 0) {
+    loadData();
+  }
+  
   const objectsHtml = objects.map(o => 
     `<option value="${o.id}" ${o.id == objectId ? 'selected' : ''}>${o.name}</option>`
   ).join('');

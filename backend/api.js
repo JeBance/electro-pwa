@@ -1192,13 +1192,8 @@ router.post('/sync', authMiddleware(), async (req, res) => {
         // Store ID mapping for local IDs
         if (localId && serverId) {
           idMapping[localId] = serverId;
-          // Update local heater record with server ID
-          if (localId.startsWith('local_')) {
-            await client.query(
-              'UPDATE heaters SET id = $1 WHERE id = $2',
-              [serverId, localId]
-            );
-          }
+          // Note: We don't update the ID in PostgreSQL because local_XXX IDs don't exist there
+          // The frontend will update its local IndexedDB record with the server ID
         }
 
         results.push({ action, success: true, localId, serverId });
