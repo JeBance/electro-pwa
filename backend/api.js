@@ -104,7 +104,14 @@ router.delete('/users/:id', authMiddleware(['admin']), async (req, res) => {
 // Objects
 router.get('/objects', authMiddleware(), async (req, res) => {
   try {
-    const result = await query('SELECT * FROM objects ORDER BY name');
+    const { include_deleted } = req.query;
+    let sql = 'SELECT * FROM objects WHERE deleted_at IS NULL';
+    if (include_deleted === 'true') {
+      sql = 'SELECT * FROM objects ORDER BY deleted_at DESC NULLS LAST, name';
+    } else {
+      sql += ' ORDER BY name';
+    }
+    const result = await query(sql);
     res.json(result.rows);
   } catch (err) {
     console.error('Get objects error:', err);
@@ -132,7 +139,8 @@ router.post('/objects', authMiddleware(['admin', 'electrician']), async (req, re
 router.delete('/objects/:id', authMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    await query('DELETE FROM objects WHERE id = $1', [id]);
+    // Soft delete - set deleted_at timestamp
+    await query('UPDATE objects SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
     res.status(204).send();
   } catch (err) {
     console.error('Delete object error:', err);
@@ -140,23 +148,41 @@ router.delete('/objects/:id', authMiddleware(['admin']), async (req, res) => {
   }
 });
 
+// Restore deleted object
+router.post('/objects/:id/restore', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await query('UPDATE objects SET deleted_at = NULL WHERE id = $1', [id]);
+    const result = await query('SELECT * FROM objects WHERE id = $1', [id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Restore object error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Premises
 router.get('/premises', authMiddleware(), async (req, res) => {
   try {
-    const { object_id } = req.query;
+    const { object_id, include_deleted } = req.query;
+    let deletedFilter = 'p.deleted_at IS NULL';
+    if (include_deleted === 'true') {
+      deletedFilter = 'TRUE';
+    }
     let sql = `
-      SELECT p.*, o.name as object_name 
-      FROM premises p 
-      LEFT JOIN objects o ON p.object_id = o.id 
+      SELECT p.*, o.name as object_name
+      FROM premises p
+      LEFT JOIN objects o ON p.object_id = o.id
+      WHERE ${deletedFilter}
       ORDER BY o.name, p.name
     `;
     const params = [];
     if (object_id) {
       sql = `
-        SELECT p.*, o.name as object_name 
-        FROM premises p 
-        LEFT JOIN objects o ON p.object_id = o.id 
-        WHERE p.object_id = $1 
+        SELECT p.*, o.name as object_name
+        FROM premises p
+        LEFT JOIN objects o ON p.object_id = o.id
+        WHERE p.object_id = $1 AND ${deletedFilter}
         ORDER BY p.name
       `;
       params.push(object_id);
@@ -189,7 +215,8 @@ router.post('/premises', authMiddleware(['admin', 'electrician']), async (req, r
 router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    await query('DELETE FROM premises WHERE id = $1', [id]);
+    // Soft delete
+    await query('UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
     res.status(204).send();
   } catch (err) {
     console.error('Delete premise error:', err);
@@ -197,10 +224,27 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
   }
 });
 
+// Restore deleted premise
+router.post('/premises/:id/restore', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await query('UPDATE premises SET deleted_at = NULL WHERE id = $1', [id]);
+    const result = await query('SELECT * FROM premises WHERE id = $1', [id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Restore premise error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Heaters
 router.get('/heaters', authMiddleware(), async (req, res) => {
   try {
-    const { premise_id, status, search } = req.query;
+    const { premise_id, status, search, include_deleted } = req.query;
+    let deletedFilter = 'h.deleted_at IS NULL';
+    if (include_deleted === 'true') {
+      deletedFilter = 'TRUE';
+    }
     let sql = `
       SELECT h.*, p.name as premise_name, p.number as premise_number,
              o.name as object_name, o.id as object_id,
@@ -209,7 +253,7 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
       LEFT JOIN premises p ON h.premise_id = p.id
       LEFT JOIN objects o ON p.object_id = o.id
       LEFT JOIN stickers s ON h.id = s.heater_id
-      WHERE 1=1
+      WHERE ${deletedFilter}
     `;
     const params = [];
     let paramIndex = 1;
@@ -397,11 +441,148 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
 router.delete('/heaters/:id', authMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    await query('DELETE FROM heaters WHERE id = $1', [id]);
+    // Soft delete
+    await query('UPDATE heaters SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
     res.status(204).send();
   } catch (err) {
     console.error('Delete heater error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Restore deleted heater
+router.post('/heaters/:id/restore', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await query('UPDATE heaters SET deleted_at = NULL WHERE id = $1', [id]);
+    const result = await query('SELECT * FROM heaters WHERE id = $1', [id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Restore heater error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export database to JSON
+router.get('/export', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const [objects, premises, heaters, stickers, events, users] = await Promise.all([
+      query('SELECT * FROM objects ORDER BY id'),
+      query('SELECT * FROM premises ORDER BY id'),
+      query('SELECT * FROM heaters ORDER BY id'),
+      query('SELECT * FROM stickers ORDER BY id'),
+      query('SELECT * FROM heater_events ORDER BY id'),
+      query('SELECT id, login, role, created_at FROM users ORDER BY id')
+    ]);
+    
+    const exportData = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      objects: objects.rows,
+      premises: premises.rows,
+      heaters: heaters.rows,
+      stickers: stickers.rows,
+      events: events.rows,
+      users: users.rows
+    };
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="electro-backup.json"');
+    res.json(exportData);
+  } catch (err) {
+    console.error('Export error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Import database from JSON
+router.post('/import', authMiddleware(['admin']), async (req, res) => {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    
+    const data = req.body;
+    let imported = { objects: 0, premises: 0, heaters: 0, stickers: 0, events: 0, users: 0 };
+    
+    // Import objects
+    if (data.objects) {
+      for (const obj of data.objects) {
+        await client.query(
+          `INSERT INTO objects (id, name, code, created_at, deleted_at) 
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO UPDATE SET name=$2, code=$3, deleted_at=$5`,
+          [obj.id, obj.name, obj.code, obj.created_at, obj.deleted_at]
+        );
+        imported.objects++;
+      }
+    }
+    
+    // Import premises
+    if (data.premises) {
+      for (const p of data.premises) {
+        await client.query(
+          `INSERT INTO premises (id, object_id, name, number, type, created_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO UPDATE SET object_id=$2, name=$3, number=$4, type=$5, deleted_at=$7`,
+          [p.id, p.object_id, p.name, p.number, p.type, p.created_at, p.deleted_at]
+        );
+        imported.premises++;
+      }
+    }
+    
+    // Import heaters
+    if (data.heaters) {
+      for (const h of data.heaters) {
+        await client.query(
+          `INSERT INTO heaters (id, premise_id, serial, name, power_kw, power_w, elements, heating_element,
+            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
+            installation_location, status, created_at, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           ON CONFLICT (id) DO UPDATE SET premise_id=$2, serial=$3, name=$4, status=$15, deleted_at=$18`,
+          [h.id, h.premise_id, h.serial, h.name, h.power_kw, h.power_w, h.elements, h.heating_element,
+           h.manufacture_date, h.decommission_date, h.inventory_number, h.voltage_v, h.protection_type,
+           h.installation_location, h.status, h.created_at, h.updated_at, h.deleted_at]
+        );
+        imported.heaters++;
+      }
+    }
+    
+    // Import stickers
+    if (data.stickers) {
+      for (const s of data.stickers) {
+        await client.query(
+          `INSERT INTO stickers (id, heater_id, number, check_date, electrician_id, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (id) DO UPDATE SET heater_id=$2, number=$3, check_date=$4`,
+          [s.id, s.heater_id, s.number, s.check_date, s.electrician_id, s.created_at]
+        );
+        imported.stickers++;
+      }
+    }
+    
+    // Import events
+    if (data.events) {
+      for (const e of data.events) {
+        await client.query(
+          `INSERT INTO heater_events (id, heater_id, user_id, event_type, from_premise_id, to_premise_id,
+            old_status, new_status, comment, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (id) DO UPDATE SET event_type=$4, comment=$9`,
+          [e.id, e.heater_id, e.user_id, e.event_type, e.from_premise_id, e.to_premise_id,
+           e.old_status, e.new_status, e.comment, e.created_at]
+        );
+        imported.events++;
+      }
+    }
+    
+    await client.query('COMMIT');
+    res.json({ success: true, imported });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Import error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

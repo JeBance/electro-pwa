@@ -446,8 +446,18 @@ function renderAdmin() {
   if (currentUser?.role !== 'admin') {
     return `<div class="empty-state"><div class="empty-state-text">Доступ запрещён</div></div>`;
   }
-  
+
   return `
+    <div class="admin-section">
+      <div class="admin-section-title">База данных</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-secondary btn-small" onclick="exportDatabase()">📥 Экспорт БД</button>
+        <button class="btn btn-secondary btn-small" onclick="showImportModal()">📤 Импорт БД</button>
+        <button class="btn btn-secondary btn-small" onclick="toggleShowDeleted()">
+          ${showDeleted ? '👁️ Скрыть удалённые' : '👁️ Показать удалённые'}
+        </button>
+      </div>
+    </div>
     <div class="admin-section">
       <div class="admin-section-title">Пользователи</div>
       <div id="users-list"></div>
@@ -1077,12 +1087,14 @@ function showHistoryModal(heaterId) {
 }
 
 // Admin functions
+let showDeleted = false;
+
 async function loadAdminData() {
   try {
     const [usersData, objectsData, premisesData] = await Promise.all([
       api('/users'),
-      api('/objects'),
-      api('/premises')
+      api(`/objects?include_deleted=${showDeleted}`),
+      api(`/premises?include_deleted=${showDeleted}`)
     ]);
 
     // Обновляем глобальные массивы
@@ -1109,8 +1121,11 @@ async function loadAdminData() {
     if (objectsList) {
       objectsList.innerHTML = objectsData.map(o => `
         <div class="settings-item">
-          <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}</span>
-          <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">Удалить</button>
+          <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}${o.deleted_at ? ' <span class="badge badge-repair">Удалён</span>' : ''}</span>
+          <div style="display:flex;gap:4px">
+            ${o.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restoreObject(${o.id})">Восстановить</button>` : ''}
+            <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">${o.deleted_at ? '×' : 'Удалить'}</button>
+          </div>
         </div>
       `).join('');
     }
@@ -1120,13 +1135,82 @@ async function loadAdminData() {
     if (premisesList) {
       premisesList.innerHTML = premisesData.map(p => `
         <div class="settings-item">
-          <span class="settings-item-label">${p.name} (${p.object_name || '?'})</span>
-          <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">Удалить</button>
+          <span class="settings-item-label">${p.name} (${p.object_name || '?'})${p.deleted_at ? ' <span class="badge badge-repair">Удалён</span>' : ''}</span>
+          <div style="display:flex;gap:4px">
+            ${p.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restorePremise(${p.id})">Восстановить</button>` : ''}
+            <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">${p.deleted_at ? '×' : 'Удалить'}</button>
+          </div>
         </div>
       `).join('');
     }
   } catch (err) {
     console.error('Failed to load admin data:', err);
+  }
+}
+
+function toggleShowDeleted() {
+  showDeleted = !showDeleted;
+  loadAdminData();
+}
+
+async function exportDatabase() {
+  try {
+    const data = await api('/export');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `electro-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Экспорт выполнен');
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function showImportModal() {
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Импорт базы данных</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div style="padding:20px 0">
+      <p style="margin-bottom:16px;color:var(--text-secondary)">Загрузите JSON файл с данными экспорта</p>
+      <input type="file" id="import-file" accept=".json,application/json" style="width:100%;padding:12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary)">
+      <button class="btn btn-primary" onclick="handleImport()" style="margin-top:16px">Импортировать</button>
+    </div>
+  `);
+}
+
+async function handleImport() {
+  const fileInput = $('#import-file');
+  const file = fileInput.files[0];
+  if (!file) {
+    showToast('Выберите файл');
+    return;
+  }
+  
+  try {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        const response = await api('/import', {
+          method: 'POST',
+          body: JSON.stringify(data)
+        });
+        closeModal();
+        showToast(`Импорт выполнен: ${Object.entries(response.imported).map(([k,v]) => `${k}: ${v}`).join(', ')}`);
+        await loadData();
+        await loadAdminData();
+      } catch (err) {
+        showToast('Ошибка импорта: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  } catch (err) {
+    showToast('Ошибка чтения файла: ' + err.message);
   }
 }
 
@@ -1222,7 +1306,7 @@ async function handleAddObject(e) {
 }
 
 async function deleteObject(id) {
-  if (!confirm('Удалить объект?')) return;
+  if (!confirm('Удалить объект? Данные можно будет восстановить.')) return;
   try {
     const response = await api(`/objects/${id}`, { method: 'DELETE' });
     if (response.offline) {
@@ -1230,11 +1314,20 @@ async function deleteObject(id) {
     } else {
       showToast('Объект удалён');
     }
-    // Перезагружаем данные и обновляем UI
     await loadAdminData();
   } catch (err) {
     console.error('Delete object error:', err);
     showToast(err.message || 'Ошибка при удалении');
+  }
+}
+
+async function restoreObject(id) {
+  try {
+    await api(`/objects/${id}/restore`, { method: 'POST' });
+    showToast('Объект восстановлен');
+    await loadAdminData();
+  } catch (err) {
+    showToast(err.message);
   }
 }
 
@@ -1302,22 +1395,21 @@ async function handleAddPremise(e) {
 }
 
 async function deletePremise(id) {
-  if (!confirm('Удалить помещение?')) return;
+  if (!confirm('Удалить помещение? Данные можно будет восстановить.')) return;
   try {
     await api(`/premises/${id}`, { method: 'DELETE' });
     showToast('Помещение удалено');
     await loadAdminData();
-    // Обновляем отображение
-    const premisesList = $('#premises-list');
-    if (premisesList) {
-      const premisesHtml = premises.map(p => `
-        <div class="settings-item">
-          <span class="settings-item-label">${p.name} (${p.object_name || '?'})</span>
-          <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">Удалить</button>
-        </div>
-      `).join('');
-      premisesList.innerHTML = premisesHtml;
-    }
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function restorePremise(id) {
+  try {
+    await api(`/premises/${id}/restore`, { method: 'POST' });
+    showToast('Помещение восстановлено');
+    await loadAdminData();
   } catch (err) {
     showToast(err.message);
   }
