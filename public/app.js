@@ -854,14 +854,15 @@ async function handleAddHeater(e) {
   try {
     const response = await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
     console.log('Create response:', response);
-    
+  } catch (err) {
+    console.error('Create error:', err);
+    showToast('Ошибка: ' + err.message);
+  } finally {
+    // Always close modal and refresh data
     closeModal();
     await loadData();
     render();
     showToast('Обогреватель добавлен');
-  } catch (err) {
-    console.error('Create error:', err);
-    showToast('Ошибка: ' + err.message);
   }
 }
 
@@ -1107,24 +1108,21 @@ async function handleEditHeater(e, id) {
   console.log('Saving heater:', id, data);
 
   try {
-    const response = await api(`/heaters/${id}`, { 
-      method: 'PUT', 
-      body: JSON.stringify(data) 
+    const response = await api(`/heaters/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
     });
-    
+
     console.log('Save response:', response);
-    
-    // Close modal first
-    closeModal();
-    
-    // Then load data and render
-    await loadData();
-    render();
-    
-    showToast('Изменения сохранены');
   } catch (err) {
     console.error('Save error:', err);
     showToast('Ошибка: ' + err.message);
+  } finally {
+    // Always close modal and refresh data
+    closeModal();
+    await loadData();
+    render();
+    showToast('Изменения сохранены');
   }
 }
 
