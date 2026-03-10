@@ -1269,11 +1269,14 @@ async function loadAdminData() {
             <div class="settings-item-label">${u.login} (${getRoleName(u.role)})</div>
             ${u.role !== 'admin' ? `<button class="btn btn-secondary btn-small" onclick="showUserObjectsModal(${u.id}, '${u.login}')" style="margin-top:4px">👁️ Объекты</button>` : ''}
           </div>
-          <select onchange="updateUserRole(${u.id}, this.value)" ${u.id === currentUser.id ? 'disabled' : ''}>
-            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Админ</option>
-            <option value="electrician" ${u.role === 'electrician' ? 'selected' : ''}>Электрик</option>
-            <option value="commander" ${u.role === 'commander' ? 'selected' : ''}>Командир</option>
-          </select>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="btn btn-secondary btn-small" onclick="showEditUserModal(${u.id}, '${u.login}', '${u.role}')" title="Редактировать">✏️</button>
+            <select onchange="updateUserRole(${u.id}, this.value)" ${u.id === currentUser.id ? 'disabled' : ''}>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Админ</option>
+              <option value="electrician" ${u.role === 'electrician' ? 'selected' : ''}>Электрик</option>
+              <option value="commander" ${u.role === 'commander' ? 'selected' : ''}>Командир</option>
+            </select>
+          </div>
         </div>
       `).join('');
     }
@@ -1285,7 +1288,7 @@ async function loadAdminData() {
         <div class="settings-item">
           <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}${o.deleted_at ? ' <span class="badge badge-repair">Удалён</span>' : ''}</span>
           <div style="display:flex;gap:4px">
-            ${o.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restoreObject(${o.id})">Восстановить</button>` : ''}
+            ${o.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restoreObject(${o.id})">Восстановить</button>` : `<button class="btn btn-secondary btn-small" onclick="showEditObjectModal(${o.id}, '${o.name.replace(/'/g, "\\'")}', '${o.code ? o.code.replace(/'/g, "\\'") : ''}')" title="Редактировать">✏️</button>`}
             <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">${o.deleted_at ? '×' : 'Удалить'}</button>
           </div>
         </div>
@@ -1299,7 +1302,7 @@ async function loadAdminData() {
         <div class="settings-item">
           <span class="settings-item-label">${p.name} (${p.object_name || '?'})${p.deleted_at ? ' <span class="badge badge-repair">Удалён</span>' : ''}</span>
           <div style="display:flex;gap:4px">
-            ${p.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restorePremise(${p.id})">Восстановить</button>` : ''}
+            ${p.deleted_at ? `<button class="btn btn-secondary btn-small" onclick="restorePremise(${p.id})">Восстановить</button>` : `<button class="btn btn-secondary btn-small" onclick="showEditPremiseModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.number ? p.number.replace(/'/g, "\\'") : ''}', '${p.type}', ${p.object_id})" title="Редактировать">✏️</button>`}
             <button class="btn btn-danger btn-small" onclick="deletePremise(${p.id})">${p.deleted_at ? '×' : 'Удалить'}</button>
           </div>
         </div>
@@ -1502,6 +1505,59 @@ async function updateUserRole(id, role) {
   try {
     await api(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }) });
     showToast('Роль обновлена');
+    await loadAdminData();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function showEditUserModal(userId, login, role) {
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Редактировать: ${login}</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="handleEditUser(event, ${userId})">
+      <div class="input-group">
+        <label>Логин</label>
+        <input type="text" name="login" value="${login}" required>
+      </div>
+      <div class="input-group">
+        <label>Новый пароль (оставьте пустым, чтобы не менять)</label>
+        <input type="password" name="password" placeholder="••••••••">
+      </div>
+      <div class="input-group">
+        <label>Роль</label>
+        <select name="role">
+          <option value="admin" ${role === 'admin' ? 'selected' : ''}>Администратор</option>
+          <option value="electrician" ${role === 'electrician' ? 'selected' : ''}>Электрик</option>
+          <option value="commander" ${role === 'commander' ? 'selected' : ''}>Командир</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+  `);
+}
+
+async function handleEditUser(e, userId) {
+  e.preventDefault();
+  const form = e.target;
+  const data = {
+    role: form.role.value
+  };
+  
+  if (form.password.value) {
+    data.password = form.password.value;
+  }
+  
+  try {
+    await api(`/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+    closeModal();
+    showToast('Пользователь обновлён');
+    await loadAdminData();
   } catch (err) {
     showToast(err.message);
   }
@@ -1538,6 +1594,45 @@ async function handleAddObject(e) {
     });
     closeModal();
     showToast('Объект добавлен');
+    loadAdminData();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function showEditObjectModal(objectId, name, code) {
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Редактировать объект</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="handleEditObject(event, ${objectId})">
+      <div class="input-group">
+        <label>Название</label>
+        <input type="text" name="name" value="${name}" required>
+      </div>
+      <div class="input-group">
+        <label>Код</label>
+        <input type="text" name="code" value="${code}">
+      </div>
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+  `);
+}
+
+async function handleEditObject(e, objectId) {
+  e.preventDefault();
+  const form = e.target;
+  try {
+    await api(`/objects/${objectId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: form.name.value,
+        code: form.code.value || null
+      })
+    });
+    closeModal();
+    showToast('Объект обновлён');
     loadAdminData();
   } catch (err) {
     showToast(err.message);
@@ -1615,7 +1710,7 @@ async function handleAddPremise(e) {
     const objectId = parseInt(form.object_id.value);
     // Сохраняем последний выбранный объект
     localStorage.setItem('last_object_id', objectId);
-    
+
     await api('/premises', {
       method: 'POST',
       body: JSON.stringify({
@@ -1627,6 +1722,66 @@ async function handleAddPremise(e) {
     });
     closeModal();
     showToast('Помещение добавлено');
+    loadAdminData();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function showEditPremiseModal(premiseId, name, number, type, objectId) {
+  const objectsHtml = objects.map(o => 
+    `<option value="${o.id}" ${o.id == objectId ? 'selected' : ''}>${o.name}</option>`
+  ).join('');
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Редактировать помещение</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="handleEditPremise(event, ${premiseId})">
+      <div class="input-group">
+        <label>Объект</label>
+        <select name="object_id" required>
+          <option value="">Выберите объект</option>
+          ${objectsHtml}
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Название</label>
+        <input type="text" name="name" value="${name}" required>
+      </div>
+      <div class="input-group">
+        <label>Номер</label>
+        <input type="text" name="number" value="${number}">
+      </div>
+      <div class="input-group">
+        <label>Тип</label>
+        <select name="type">
+          <option value="wagon" ${type === 'wagon' ? 'selected' : ''}>Вагон</option>
+          <option value="room" ${type === 'room' ? 'selected' : ''}>Помещение</option>
+          <option value="building" ${type === 'building' ? 'selected' : ''}>Здание</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+  `);
+}
+
+async function handleEditPremise(e, premiseId) {
+  e.preventDefault();
+  const form = e.target;
+  try {
+    await api(`/premises/${premiseId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        object_id: parseInt(form.object_id.value),
+        name: form.name.value,
+        number: form.number.value || null,
+        type: form.type.value
+      })
+    });
+    closeModal();
+    showToast('Помещение обновлено');
     loadAdminData();
   } catch (err) {
     showToast(err.message);
@@ -1719,3 +1874,9 @@ window.handleAddHeater = handleAddHeater;
 window.showPremiseNoteModal = showPremiseNoteModal;
 window.savePremiseNote = savePremiseNote;
 window.deletePremiseNote = deletePremiseNote;
+window.showEditUserModal = showEditUserModal;
+window.handleEditUser = handleEditUser;
+window.showEditObjectModal = showEditObjectModal;
+window.handleEditObject = handleEditObject;
+window.showEditPremiseModal = showEditPremiseModal;
+window.handleEditPremise = handleEditPremise;

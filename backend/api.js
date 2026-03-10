@@ -87,6 +87,54 @@ router.put('/users/:id/role', authMiddleware(['admin']), async (req, res) => {
   }
 });
 
+// Update user (login, password, role)
+router.put('/users/:id', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { login, password, role } = req.body;
+    
+    const validRoles = ['admin', 'electrician', 'commander'];
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    if (login) {
+      updates.push(`login = $${paramIndex++}`);
+      params.push(login);
+    }
+    
+    if (password) {
+      const passwordHash = await hashPassword(password);
+      updates.push(`password_hash = $${paramIndex++}`);
+      params.push(passwordHash);
+    }
+    
+    if (role) {
+      updates.push(`role = $${paramIndex++}`);
+      params.push(role);
+    }
+    
+    if (updates.length === 0) {
+      return res.json({ message: 'No updates' });
+    }
+    
+    params.push(id);
+    const result = await query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, login, role, created_at`,
+      params
+    );
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.delete('/users/:id', authMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -180,6 +228,24 @@ router.delete('/objects/:id', authMiddleware(['admin']), async (req, res) => {
     res.status(204).send();
   } catch (err) {
     console.error('Delete object error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update object
+router.put('/objects/:id', authMiddleware(['admin', 'electrician']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, code } = req.body;
+    
+    const result = await query(
+      'UPDATE objects SET name = $1, code = $2 WHERE id = $3 RETURNING *',
+      [name, code || null, id]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update object error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -351,26 +417,26 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
+
     const { id } = req.params;
-    
+
     // Find all heaters in this premise and move them to warehouse
     const heatersResult = await client.query(
       'SELECT id FROM heaters WHERE premise_id = $1 AND deleted_at IS NULL',
       [id]
     );
-    
+
     for (const heater of heatersResult.rows) {
       // Get current heater status
       const heaterStatus = await client.query('SELECT status FROM heaters WHERE id = $1', [heater.id]);
       const currentStatus = heaterStatus.rows[0].status;
-      
+
       // Update heater status to warehouse
       await client.query(
         'UPDATE heaters SET premise_id = NULL, status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
         ['warehouse', heater.id]
       );
-      
+
       // Log the event
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
@@ -378,10 +444,10 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
         [heater.id, req.user.id, id, null, currentStatus, 'warehouse', 'Обогреватель перемещён на склад']
       );
     }
-    
+
     // Soft delete the premise
     await client.query('UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
-    
+
     await client.query('COMMIT');
     res.status(204).send();
   } catch (err) {
@@ -390,6 +456,24 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   } finally {
     client.release();
+  }
+});
+
+// Update premise
+router.put('/premises/:id', authMiddleware(['admin', 'electrician']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { object_id, name, number, type } = req.body;
+    
+    const result = await query(
+      'UPDATE premises SET object_id = $1, name = $2, number = $3, type = $4 WHERE id = $5 RETURNING *',
+      [object_id, name, number || null, type || 'wagon', id]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update premise error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
