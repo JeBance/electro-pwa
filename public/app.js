@@ -382,7 +382,7 @@ function renderHeaters() {
 function renderPremisesView() {
   const premiseMap = new Map();
   const warehouseHeaters = [];
-  
+
   heaters.forEach(h => {
     if (h.status === 'warehouse') {
       warehouseHeaters.push(h);
@@ -404,11 +404,11 @@ function renderPremisesView() {
     </div>`;
   }
 
-  // Group by premise
+  // Group by known premises
   premises.forEach(p => {
     const items = premiseMap.get(p.id) || [];
     if (items.length === 0) return;
-    
+
     const hasNote = p.note && p.note.trim() !== '';
     const notePreview = hasNote ? p.note.substring(0, 50) + (p.note.length > 50 ? '...' : '') : '';
 
@@ -422,6 +422,29 @@ function renderPremisesView() {
           </div>
           <div style="display:flex;gap:4px">
             <button class="btn btn-secondary btn-small" onclick="showPremiseNoteModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.note ? p.note.replace(/'/g, "\\'") : ''}')" title="Заметка">📝</button>
+          </div>
+        </div>
+        ${items.map(h => renderHeaterItem(h)).join('')}
+      </div>
+    `;
+  });
+
+  // Group heaters with unknown premises (offline-created premises)
+  premiseMap.forEach((items, key) => {
+    // Skip if already rendered (key is 0 or known premise ID)
+    if (key === 0) return;
+    const knownPremise = premises.find(p => p.id === key);
+    if (knownPremise) return;
+
+    // This is an offline-created premise - show with premise_name from heater
+    const premiseName = items[0]?.premise_name || 'Помещение #' + key;
+    
+    html += `
+      <div class="card">
+        <div class="card-header">
+          <div style="flex:1">
+            <span class="card-title">${premiseName}</span>
+            <span class="card-subtitle">(офлайн)</span>
           </div>
         </div>
         ${items.map(h => renderHeaterItem(h)).join('')}
@@ -1239,12 +1262,12 @@ async function loadHeaterEvents(heaterId) {
 async function showEditHeaterModal(id) {
   // Try to find heater in local cache first
   let heater = heaters.find(h => h.id === id);
-  
+
   // If not found in global array, try IndexedDB (for offline-created heaters)
   if (!heater) {
     heater = await db.heaters.get(id);
   }
-  
+
   // If still not found and online, try to load from API
   if (!heater && navigator.onLine) {
     try {
@@ -1255,13 +1278,17 @@ async function showEditHeaterModal(id) {
       return;
     }
   }
-  
+
   if (!heater) {
     showToast('Обогреватель не найден');
     return;
   }
 
-  const premise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
+  // Find current premise (may be null for offline-created premises)
+  const currentPremise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
+  
+  // Get object_id from heater data or current premise
+  const object_id = heater.object_id || currentPremise?.object_id;
 
   // Load objects if not available
   if (objects.length === 0) {
@@ -1269,13 +1296,17 @@ async function showEditHeaterModal(id) {
   }
 
   const objectsHtml = objects.map(o =>
-    `<option value="${o.id}" ${o.id === premise?.object_id ? 'selected' : ''}>${o.name}</option>`
+    `<option value="${o.id}" ${o.id === object_id ? 'selected' : ''}>${o.name}</option>`
   ).join('');
 
-  const premisesHtml = premise?.object_id
-    ? premises.filter(p => p.object_id === premise.object_id)
-        .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`).join('')
-    : '';
+  // Get all premises for this object (or all premises if object not found)
+  const availablePremises = object_id 
+    ? premises.filter(p => p.object_id === object_id)
+    : premises;
+
+  const premisesHtml = availablePremises.map(p => 
+    `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
 
   // Форматируем даты для input type="date" (требуется YYYY-MM-DD)
   const formatDateForInput = (dateStr) => {
