@@ -812,6 +812,12 @@ async function handleAddHeater(e) {
   e.preventDefault();
   const form = e.target;
   const objectId = parseInt(form.object_id.value);
+  
+  if (!objectId) {
+    showToast('Ошибка: выберите объект');
+    return;
+  }
+  
   // Сохраняем последний выбранный объект
   localStorage.setItem('last_object_id', objectId);
 
@@ -823,8 +829,8 @@ async function handleAddHeater(e) {
     premiseId = parseInt(form.move_premise_id.value);
   }
   
-  // Если статус "На складе" или нет помещения, убираем помещение
-  if (status === 'warehouse' || !premiseId) {
+  // Если статус "На складе", убираем помещение
+  if (status === 'warehouse') {
     premiseId = null;
   }
 
@@ -843,14 +849,19 @@ async function handleAddHeater(e) {
     status: status
   };
 
+  console.log('Creating heater:', data);
+
   try {
-    await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
+    const response = await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
+    console.log('Create response:', response);
+    
     closeModal();
-    showToast('Обогреватель добавлен');
     await loadData();
     render();
+    showToast('Обогреватель добавлен');
   } catch (err) {
-    showToast(err.message);
+    console.error('Create error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 
@@ -1069,14 +1080,14 @@ async function handleEditHeater(e, id) {
   const form = e.target;
   const status = form.status.value;
   let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
-  
+
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
-  
-  // Если статус "На складе" или нет помещения, убираем помещение
-  if (status === 'warehouse' || !premiseId) {
+
+  // Если статус "На складе", убираем помещение
+  if (status === 'warehouse') {
     premiseId = null;
   }
 
@@ -1093,14 +1104,27 @@ async function handleEditHeater(e, id) {
     status: status
   };
 
+  console.log('Saving heater:', id, data);
+
   try {
-    await api(`/heaters/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    const response = await api(`/heaters/${id}`, { 
+      method: 'PUT', 
+      body: JSON.stringify(data) 
+    });
+    
+    console.log('Save response:', response);
+    
+    // Close modal first
     closeModal();
-    showToast('Изменения сохранены');
+    
+    // Then load data and render
     await loadData();
     render();
+    
+    showToast('Изменения сохранены');
   } catch (err) {
-    showToast(err.message);
+    console.error('Save error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 

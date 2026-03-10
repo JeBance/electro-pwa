@@ -597,86 +597,78 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
     const params = [];
     let paramIndex = 1;
 
-    if (premise_id !== undefined && premise_id !== current.premise_id) {
+    // Handle premise change
+    if (premise_id !== current.premise_id) {
       updates.push(`premise_id = $${paramIndex++}`);
       params.push(premise_id);
-      
-      // Get premise name for comment
-      const premiseResult = await client.query('SELECT name FROM premises WHERE id = $1', [premise_id]);
-      const premiseName = premiseResult.rows[0]?.name || 'неизвестное';
-      
-      await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
-         VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
-        [id, req.user.id, current.premise_id, premise_id, `Обогреватель перемещён в ${premiseName}`]
-      );
-    }
-    
-    // If status changed to warehouse, also clear premise_id
-    if (status === 'warehouse' && current.status !== 'warehouse' && current.premise_id !== null) {
-      updates.push(`premise_id = $${paramIndex++}`);
-      params.push(null);
-      await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
-         VALUES ($1, $2, 'premise_change', $3, $4, $5, $6, $7)`,
-        [id, req.user.id, current.premise_id, null, current.status, 'warehouse', 'Обогреватель перемещён на склад']
-      );
-    }
-    
-    // If status changed to repair
-    if (status === 'repair' && current.status !== 'repair') {
-      await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
-         VALUES ($1, $2, 'status_change', $3, $4, $5)`,
-        [id, req.user.id, current.status, status, 'Обогреватель перемещён в ремонт']
-      );
-    } else if (status !== undefined && status !== current.status && status !== 'warehouse' && status !== 'repair') {
-      // Other status changes
-      const statusNames = {
-        'active': 'активен',
-        'moved': 'перемещён'
-      };
-      const newStatusName = statusNames[status] || status;
-      await client.query(
-        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
-         VALUES ($1, $2, 'status_change', $3, $4, $5)`,
-        [id, req.user.id, current.status, status, `Статус изменён: ${newStatusName}`]
-      );
-    }
-    if (serial !== undefined) { updates.push(`serial = $${paramIndex++}`); params.push(serial); }
-    if (name !== undefined) { updates.push(`name = $${paramIndex++}`); params.push(name); }
-    if (power_kw !== undefined) { updates.push(`power_kw = $${paramIndex++}`); params.push(power_kw); }
-    if (power_w !== undefined) { updates.push(`power_w = $${paramIndex++}`); params.push(power_w); }
-    if (elements !== undefined) { updates.push(`elements = $${paramIndex++}`); params.push(elements); }
-    if (heating_element !== undefined) { updates.push(`heating_element = $${paramIndex++}`); params.push(heating_element); }
-    if (manufacture_date !== undefined) { updates.push(`manufacture_date = $${paramIndex++}`); params.push(manufacture_date); }
-    if (decommission_date !== undefined) { updates.push(`decommission_date = $${paramIndex++}`); params.push(decommission_date); }
-    if (inventory_number !== undefined) { updates.push(`inventory_number = $${paramIndex++}`); params.push(inventory_number); }
-    if (voltage_v !== undefined) { updates.push(`voltage_v = $${paramIndex++}`); params.push(voltage_v); }
-    if (protection_type !== undefined) { updates.push(`protection_type = $${paramIndex++}`); params.push(protection_type); }
-    if (installation_location !== undefined) { updates.push(`installation_location = $${paramIndex++}`); params.push(installation_location); }
-    if (photo_url !== undefined) { updates.push(`photo_url = $${paramIndex++}`); params.push(photo_url); }
 
+      if (premise_id) {
+        const premiseResult = await client.query('SELECT name FROM premises WHERE id = $1', [premise_id]);
+        const premiseName = premiseResult.rows[0]?.name || 'неизвестное';
+        await client.query(
+          `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
+           VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
+          [id, req.user.id, current.premise_id, premise_id, `Обогреватель перемещён в ${premiseName}`]
+        );
+      }
+    }
+
+    // Handle status change with appropriate comment
     if (status !== undefined && status !== current.status) {
       updates.push(`status = $${paramIndex++}`);
       params.push(status);
-      const statusNames = {
-        'active': 'активен',
-        'repair': 'в ремонте',
-        'warehouse': 'на складе',
-        'moved': 'перемещён'
-      };
-      const oldStatusName = statusNames[current.status] || current.status;
-      const newStatusName = statusNames[status] || status;
+      
+      let comment = '';
+      if (status === 'warehouse' && current.status !== 'warehouse') {
+        comment = 'Обогреватель перемещён на склад';
+        // Also clear premise_id when moving to warehouse
+        if (current.premise_id !== null) {
+          updates.push(`premise_id = $${paramIndex++}`);
+          params.push(null);
+        }
+      } else if (status === 'repair' && current.status !== 'repair') {
+        comment = 'Обогреватель перемещён в ремонт';
+      } else {
+        const statusNames = {
+          'active': 'активен',
+          'repair': 'в ремонте',
+          'warehouse': 'на складе',
+          'moved': 'перемещён'
+        };
+        const oldStatusName = statusNames[current.status] || current.status;
+        const newStatusName = statusNames[status] || status;
+        comment = `Статус изменён с "${oldStatusName}" на "${newStatusName}"`;
+      }
+      
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
          VALUES ($1, $2, 'status_change', $3, $4, $5)`,
-        [id, req.user.id, current.status, status, `Статус изменён с "${oldStatusName}" на "${newStatusName}"`]
+        [id, req.user.id, current.status, status, comment]
       );
     }
 
+    // Handle other field updates
+    if (serial !== undefined && serial !== current.serial) { updates.push(`serial = $${paramIndex++}`); params.push(serial); }
+    if (name !== undefined && name !== current.name) { updates.push(`name = $${paramIndex++}`); params.push(name); }
+    if (power_kw !== current.power_kw) { updates.push(`power_kw = $${paramIndex++}`); params.push(power_kw); }
+    if (power_w !== current.power_w) { updates.push(`power_w = $${paramIndex++}`); params.push(power_w); }
+    if (elements !== current.elements) { updates.push(`elements = $${paramIndex++}`); params.push(elements); }
+    if (heating_element !== current.heating_element) { updates.push(`heating_element = $${paramIndex++}`); params.push(heating_element); }
+    if (manufacture_date !== current.manufacture_date) { updates.push(`manufacture_date = $${paramIndex++}`); params.push(manufacture_date); }
+    if (decommission_date !== current.decommission_date) { updates.push(`decommission_date = $${paramIndex++}`); params.push(decommission_date); }
+    if (inventory_number !== current.inventory_number) { updates.push(`inventory_number = $${paramIndex++}`); params.push(inventory_number); }
+    if (voltage_v !== current.voltage_v) { updates.push(`voltage_v = $${paramIndex++}`); params.push(voltage_v); }
+    if (protection_type !== current.protection_type) { updates.push(`protection_type = $${paramIndex++}`); params.push(protection_type); }
+    if (installation_location !== current.installation_location) { updates.push(`installation_location = $${paramIndex++}`); params.push(installation_location); }
+    if (photo_url !== current.photo_url) { updates.push(`photo_url = $${paramIndex++}`); params.push(photo_url); }
+
     updates.push(`updated_at = CURRENT_TIMESTAMP`);
     params.push(id);
+
+    if (updates.length === 0) {
+      await client.query('ROLLBACK');
+      return res.json(current);
+    }
 
     const result = await client.query(
       `UPDATE heaters SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
