@@ -1315,13 +1315,6 @@ async function showUserObjectsModal(userId, userName) {
   }
 }
 
-// Make functions globally accessible for onclick handlers
-window.showUserObjectsModal = showUserObjectsModal;
-window.saveUserObjects = saveUserObjects;
-window.toggleSort = toggleSort;
-window.setFilter = setFilter;
-window.renderHeaters = renderHeaters;
-
 async function saveUserObjects(userId) {
   const modal = $('.modal-overlay');
   if (!modal) {
@@ -1605,3 +1598,10 @@ async function init() {
 }
 
 init();
+
+// Make functions globally accessible for onclick handlers
+window.showUserObjectsModal = showUserObjectsModal;
+window.saveUserObjects = saveUserObjects;
+window.toggleSort = toggleSort;
+window.setFilter = setFilter;
+window.renderHeaters = renderHeaters;
