@@ -121,6 +121,10 @@ async function api(endpoint, options = {}) {
       logout();
       throw new Error('Unauthorized');
     }
+    // Handle 204 No Content (DELETE success)
+    if (res.status === 204) {
+      return { success: true };
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
     return data;
@@ -1084,22 +1088,17 @@ async function handleAddObject(e) {
 async function deleteObject(id) {
   if (!confirm('Удалить объект?')) return;
   try {
-    await api(`/objects/${id}`, { method: 'DELETE' });
-    showToast('Объект удалён');
-    await loadAdminData();
-    // Обновляем отображение
-    const objectsList = $('#objects-list');
-    if (objectsList) {
-      const objectsHtml = objects.map(o => `
-        <div class="settings-item">
-          <span class="settings-item-label">${o.name}${o.code ? ` (${o.code})` : ''}</span>
-          <button class="btn btn-danger btn-small" onclick="deleteObject(${o.id})">Удалить</button>
-        </div>
-      `).join('');
-      objectsList.innerHTML = objectsHtml;
+    const response = await api(`/objects/${id}`, { method: 'DELETE' });
+    if (response.offline) {
+      showToast('Офлайн: операция сохранена в очередь');
+    } else {
+      showToast('Объект удалён');
     }
+    // Перезагружаем данные и обновляем UI
+    await loadAdminData();
   } catch (err) {
-    showToast(err.message);
+    console.error('Delete object error:', err);
+    showToast(err.message || 'Ошибка при удалении');
   }
 }
 
