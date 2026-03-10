@@ -1123,7 +1123,10 @@ async function loadAdminData() {
     if (usersList) {
       usersList.innerHTML = usersData.map(u => `
         <div class="settings-item">
-          <span class="settings-item-label">${u.login} (${getRoleName(u.role)})</span>
+          <div style="flex:1">
+            <div class="settings-item-label">${u.login} (${getRoleName(u.role)})</div>
+            ${u.role !== 'admin' ? `<button class="btn btn-secondary btn-small" onclick="showUserObjectsModal(${u.id}, '${u.login}')" style="margin-top:4px">👁️ Объекты</button>` : ''}
+          </div>
           <select onchange="updateUserRole(${u.id}, this.value)" ${u.id === currentUser.id ? 'disabled' : ''}>
             <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Админ</option>
             <option value="electrician" ${u.role === 'electrician' ? 'selected' : ''}>Электрик</option>
@@ -1228,6 +1231,54 @@ async function handleImport() {
     reader.readAsText(file);
   } catch (err) {
     showToast('Ошибка чтения файла: ' + err.message);
+  }
+}
+
+async function showUserObjectsModal(userId, userName) {
+  try {
+    const [allObjects, userObjects] = await Promise.all([
+      api('/objects'),
+      api(`/users/${userId}/objects`)
+    ]);
+    
+    const userObjectIds = new Set(userObjects.map(o => o.object_id));
+    const objectsHtml = allObjects.map(o => `
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
+        <input type="checkbox" name="object_${o.id}" ${userObjectIds.has(o.object_id) ? 'checked' : ''} value="${o.id}">
+        ${o.name}${o.code ? ` (${o.code})` : ''}
+      </label>
+    `).join('');
+    
+    showModal(`
+      <div class="modal-header">
+        <div class="modal-title">Объекты: ${userName}</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div style="padding:16px 0;max-height:400px;overflow-y:auto">
+        ${objectsHtml}
+      </div>
+      <button class="btn btn-primary" onclick="saveUserObjects(${userId})">Сохранить</button>
+    `);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function saveUserObjects(userId) {
+  const modal = $('.modal-overlay');
+  const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
+  const objectIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+  
+  try {
+    await api(`/users/${userId}/objects`, {
+      method: 'PUT',
+      body: JSON.stringify({ object_ids: objectIds })
+    });
+    closeModal();
+    showToast('Права доступа обновлены');
+    loadAdminData();
+  } catch (err) {
+    showToast(err.message);
   }
 }
 

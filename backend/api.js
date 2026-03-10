@@ -105,13 +105,31 @@ router.delete('/users/:id', authMiddleware(['admin']), async (req, res) => {
 router.get('/objects', authMiddleware(), async (req, res) => {
   try {
     const { include_deleted } = req.query;
-    let sql = 'SELECT * FROM objects WHERE deleted_at IS NULL';
-    if (include_deleted === 'true') {
-      sql = 'SELECT * FROM objects ORDER BY deleted_at DESC NULLS LAST, name';
-    } else {
-      sql += ' ORDER BY name';
+    const user = req.user;
+    
+    // Admin sees all objects, others see only assigned objects
+    let sql = `
+      SELECT o.*, 
+             CASE WHEN uo.user_id IS NOT NULL THEN true ELSE false END as accessible
+      FROM objects o
+      LEFT JOIN user_objects uo ON o.id = uo.object_id AND uo.user_id = $1
+      WHERE o.deleted_at IS NULL
+    `;
+    const params = [user.id];
+    
+    // If not admin, filter to only accessible objects
+    if (user.role !== 'admin') {
+      sql = `
+        SELECT o.*, true as accessible
+        FROM objects o
+        INNER JOIN user_objects uo ON o.id = uo.object_id AND uo.user_id = $1
+        WHERE o.deleted_at IS NULL
+      `;
     }
-    const result = await query(sql);
+    
+    sql += ' ORDER BY o.name';
+    
+    const result = await query(sql, params);
     res.json(result.rows);
   } catch (err) {
     console.error('Get objects error:', err);
@@ -161,32 +179,121 @@ router.post('/objects/:id/restore', authMiddleware(['admin']), async (req, res) 
   }
 });
 
+// Get user object permissions
+router.get('/users/:id/objects', authMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(`
+      SELECT uo.object_id, o.name as object_name
+      FROM user_objects uo
+      LEFT JOIN objects o ON uo.object_id = o.id
+      WHERE uo.user_id = $1
+      ORDER BY o.name
+    `, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get user objects error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update user object permissions
+router.put('/users/:id/objects', authMiddleware(['admin']), async (req, res) => {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    const { id } = req.params;
+    const { object_ids } = req.body;
+    
+    // Delete existing permissions
+    await client.query('DELETE FROM user_objects WHERE user_id = $1', [id]);
+    
+    // Add new permissions
+    if (object_ids && object_ids.length > 0) {
+      for (const objectId of object_ids) {
+        await client.query(
+          'INSERT INTO user_objects (user_id, object_id) VALUES ($1, $2)',
+          [id, objectId]
+        );
+      }
+    }
+    
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Update user objects error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// Get current user's accessible objects
+router.get('/my-objects', authMiddleware(), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const result = await query(`
+      SELECT uo.object_id, o.name as object_name
+      FROM user_objects uo
+      LEFT JOIN objects o ON uo.object_id = o.id
+      WHERE uo.user_id = $1
+      ORDER BY o.name
+    `, [userId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get my objects error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Premises
 router.get('/premises', authMiddleware(), async (req, res) => {
   try {
     const { object_id, include_deleted } = req.query;
+    const user = req.user;
+    
     let deletedFilter = 'p.deleted_at IS NULL';
     if (include_deleted === 'true') {
       deletedFilter = 'TRUE';
     }
+    
+    // For non-admin users, filter by accessible objects
+    let objectFilter = '';
+    const params = [];
+    let paramIndex = 1;
+    
+    if (user.role !== 'admin') {
+      objectFilter = `
+        AND (
+          EXISTS (
+            SELECT 1 FROM user_objects uo 
+            WHERE uo.user_id = $${paramIndex++} AND uo.object_id = p.object_id
+          )
+        )
+      `;
+      params.push(user.id);
+    }
+    
     let sql = `
       SELECT p.*, o.name as object_name
       FROM premises p
       LEFT JOIN objects o ON p.object_id = o.id
-      WHERE ${deletedFilter}
+      WHERE ${deletedFilter} ${objectFilter}
       ORDER BY o.name, p.name
     `;
-    const params = [];
+    
     if (object_id) {
       sql = `
         SELECT p.*, o.name as object_name
         FROM premises p
         LEFT JOIN objects o ON p.object_id = o.id
-        WHERE p.object_id = $1 AND ${deletedFilter}
+        WHERE p.object_id = $${paramIndex++} AND ${deletedFilter} ${objectFilter}
         ORDER BY p.name
       `;
       params.push(object_id);
     }
+    
     const result = await query(sql, params);
     res.json(result.rows);
   } catch (err) {
@@ -241,10 +348,29 @@ router.post('/premises/:id/restore', authMiddleware(['admin']), async (req, res)
 router.get('/heaters', authMiddleware(), async (req, res) => {
   try {
     const { premise_id, status, search, include_deleted } = req.query;
+    const user = req.user;
     let deletedFilter = 'h.deleted_at IS NULL';
     if (include_deleted === 'true') {
       deletedFilter = 'TRUE';
     }
+    
+    // For non-admin users, filter by accessible objects
+    let objectFilter = '';
+    const params = [];
+    let paramIndex = 1;
+    
+    if (user.role !== 'admin') {
+      objectFilter = `
+        AND (
+          EXISTS (
+            SELECT 1 FROM user_objects uo 
+            WHERE uo.user_id = $${paramIndex++} AND uo.object_id = o.id
+          )
+        )
+      `;
+      params.push(user.id);
+    }
+    
     let sql = `
       SELECT h.*, p.name as premise_name, p.number as premise_number,
              o.name as object_name, o.id as object_id,
@@ -253,10 +379,8 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
       LEFT JOIN premises p ON h.premise_id = p.id
       LEFT JOIN objects o ON p.object_id = o.id
       LEFT JOIN stickers s ON h.id = s.heater_id
-      WHERE ${deletedFilter}
+      WHERE ${deletedFilter} ${objectFilter}
     `;
-    const params = [];
-    let paramIndex = 1;
 
     if (premise_id) {
       sql += ` AND h.premise_id = $${paramIndex}`;
