@@ -79,10 +79,12 @@ function getInitials(name) {
 // Navigation
 async function setView(view) {
   currentView = view;
-  // При переходе на обогреватели — обновляем данные
+  
+  // При переходе на обогреватели — загружаем данные (из кэша если офлайн)
   if (view === 'heaters') {
     await loadData();
   }
+  
   render();
 }
 
@@ -92,7 +94,7 @@ function setBottomNav(view) {
   });
 }
 
-// API calls
+// API calls - offline first
 async function api(endpoint, options = {}) {
   const token = localStorage.getItem('token');
   const headers = {
@@ -102,7 +104,7 @@ async function api(endpoint, options = {}) {
 
   const isOnline = navigator.onLine;
 
-  // For offline GET requests, use cache immediately
+  // For offline GET requests, use cache immediately (silent)
   if (!isOnline && options.method === 'GET') {
     return await getCachedData(endpoint);
   }
@@ -116,7 +118,10 @@ async function api(endpoint, options = {}) {
       data: options.body ? JSON.parse(options.body) : null,
       timestamp: Date.now()
     });
-    showToast('Офлайн: операция сохранена в очередь');
+    // Only show toast for user-initiated actions (not background sync)
+    if (!options.silent) {
+      showToast('Офлайн: операция сохранена в очередь');
+    }
     return { offline: true };
   }
 
@@ -143,7 +148,9 @@ async function api(endpoint, options = {}) {
         data: options.body ? JSON.parse(options.body) : null,
         timestamp: Date.now()
       });
-      showToast('Офлайн: операция сохранена в очередь');
+      if (!options.silent) {
+        showToast('Офлайн: операция сохранена в очередь');
+      }
       return { offline: true };
     }
 
@@ -231,24 +238,45 @@ function checkAuth() {
   }
 }
 
-// Data loading
+// Data loading - offline first
 async function loadData() {
   try {
-    const [heatersData, premisesData, objectsData, usersData] = await Promise.all([
-      api('/heaters'),
-      api('/premises'),
-      api('/objects'),
-      api('/users')
-    ]);
+    // Always load from cache first for instant UI
+    const cachedHeaters = await db.heaters.toArray();
+    const cachedPremises = await db.premises.toArray();
+    const cachedObjects = await db.objects.toArray();
+    const cachedUsers = await db.users.toArray();
+    
+    // Use cached data immediately
+    if (cachedHeaters.length > 0) heaters = cachedHeaters;
+    if (cachedPremises.length > 0) premises = cachedPremises;
+    if (cachedObjects.length > 0) objects = cachedObjects;
+    
+    // Try to sync with server in background if online
+    if (navigator.onLine) {
+      try {
+        const [heatersData, premisesData, objectsData, usersData] = await Promise.all([
+          api('/heaters'),
+          api('/premises'),
+          api('/objects'),
+          api('/users')
+        ]);
 
-    heaters = heatersData;
-    premises = premisesData;
-    objects = objectsData;
+        heaters = heatersData;
+        premises = premisesData;
+        objects = objectsData;
 
-    await cacheData('/heaters', heatersData);
-    await cacheData('/premises', premisesData);
-    await cacheData('/objects', objectsData);
-    await cacheData('/users', usersData);
+        await cacheData('/heaters', heatersData);
+        await cacheData('/premises', premisesData);
+        await cacheData('/objects', objectsData);
+        await cacheData('/users', usersData);
+        
+        // Refresh UI after sync
+        render();
+      } catch (syncErr) {
+        console.log('Background sync failed, using cached data:', syncErr.message);
+      }
+    }
   } catch (err) {
     console.error('Failed to load data:', err);
   }
@@ -1278,7 +1306,8 @@ async function deletePremiseNote(premiseId) {
 
   try {
     const response = await api(`/premises/${premiseId}/note`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      silent: true  // Silent mode for background operations
     });
 
     if (response.offline) {
@@ -1914,7 +1943,7 @@ async function updateSyncStatus() {
   }
 }
 
-// Initialize
+// Initialize - offline first
 async function init() {
   // Initialize sync manager
   if (typeof SyncManager !== 'undefined') {
@@ -1922,6 +1951,7 @@ async function init() {
   }
 
   if (checkAuth()) {
+    // Load data from cache first (works offline)
     await loadData();
     await setView('heaters');
   } else {
@@ -1932,8 +1962,10 @@ async function init() {
   window.addEventListener('online', () => {
     showToast('🟢 Онлайн');
     render();
-    syncQueue();
+    syncQueue();  // Sync any pending operations
     updateSyncStatus();
+    // Refresh data from server
+    loadData();
   });
 
   window.addEventListener('offline', () => {
@@ -1968,4 +2000,15 @@ async function syncQueue() {
   if (typeof SyncManager !== 'undefined') {
     await SyncManager.sync();
   }
+}
+
+// Background sync function (silent)
+async function backgroundSync(endpoint, method, data) {
+  await db.syncQueue.add({
+    action: endpoint,
+    endpoint,
+    method: method,
+    data: data,
+    timestamp: Date.now()
+  });
 }

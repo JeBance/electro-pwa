@@ -8,7 +8,7 @@ const SyncManager = {
 
   async add(operation) {
     if (!this.db) throw new Error('DB not initialized');
-    
+
     await this.db.syncQueue.add({
       action: operation.endpoint,
       endpoint: operation.endpoint,
@@ -46,6 +46,10 @@ const SyncManager = {
       if (response.ok) {
         await this.db.syncQueue.clear();
         console.log('Sync completed successfully');
+        // Refresh data after sync
+        if (typeof loadData === 'function') {
+          loadData();
+        }
       }
     } catch (err) {
       console.error('Sync failed:', err);
