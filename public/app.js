@@ -323,13 +323,13 @@ function renderPremisesView() {
 }
 
 function renderHeaterItem(h) {
-  const sticker = h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '';
+  const sticker = h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span> ` : '';
   return `
     <div class="list-item" onclick="showHeaterDetail(${h.id})">
       <div class="list-item-icon">🔥</div>
       <div class="list-item-content">
-        <div class="list-item-title">${h.name} ${sticker}</div>
-        <div class="list-item-subtitle">${h.serial || 'Б/Н'} • ${h.power_kw ? h.power_kw + ' кВт' : ''}</div>
+        <div class="list-item-title">${sticker}${h.name}</div>
+        <div class="list-item-subtitle">${h.serial || 'Б/Н'} • ${h.power_w ? h.power_w + ' Вт' : ''}</div>
       </div>
       ${getStatusBadge(h.status)}
     </div>
@@ -378,6 +378,7 @@ function renderListView() {
       <table>
         <thead>
           <tr>
+            <th onclick="sortField = 'sticker_number'; sortDir = sortField === 'sticker_number' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Инв. №${sortIcon('sticker_number')}</th>
             <th onclick="sortField = 'name'; sortDir = sortField === 'name' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Наименование${sortIcon('name')}</th>
             <th onclick="sortField = 'serial'; sortDir = sortField === 'serial' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Зав. №${sortIcon('serial')}</th>
             <th onclick="sortField = 'voltage_v'; sortDir = sortField === 'voltage_v' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">U, В${sortIcon('voltage_v')}</th>
@@ -385,12 +386,12 @@ function renderListView() {
             <th>Нагреватель</th>
             <th>Исполнение</th>
             <th onclick="sortField = 'status'; sortDir = sortField === 'status' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Статус${sortIcon('status')}</th>
-            <th>Инв. №</th>
           </tr>
         </thead>
         <tbody>
           ${filtered.map(h => `
             <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
+              <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
               <td>${h.name}</td>
               <td>${h.serial || 'Б/Н'}</td>
               <td>${h.voltage_v || '—'}</td>
@@ -398,7 +399,6 @@ function renderListView() {
               <td>${h.heating_element || '—'}</td>
               <td>${h.protection_type || '—'}</td>
               <td>${getStatusBadge(h.status)}</td>
-              <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
             </tr>
           `).join('')}
         </tbody>
