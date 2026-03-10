@@ -1295,18 +1295,29 @@ async function showUserObjectsModal(userId, userName) {
       api(`/users/${userId}/objects`)
     ]);
 
-    const userObjectIds = new Set(userObjects.map(o => o.object_id));
-    
+    console.log('All objects:', allObjects);
+    console.log('User objects:', userObjects);
+
+    // Convert to numbers for consistent comparison
+    const userObjectIds = new Set(userObjects.map(o => parseInt(o.object_id)));
+
+    console.log('User object IDs:', Array.from(userObjectIds));
+
     let objectsHtml;
     if (allObjects.length === 0) {
       objectsHtml = '<div style="padding:16px 0;color:var(--text-secondary)">Нет объектов</div>';
     } else {
-      objectsHtml = allObjects.map(o => `
-        <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
-          <input type="checkbox" name="object_${o.id}" ${userObjectIds.has(o.object_id) ? 'checked' : ''} value="${o.id}">
-          ${o.name}${o.code ? ` (${o.code})` : ''}
-        </label>
-      `).join('');
+      objectsHtml = allObjects.map(o => {
+        const objectId = parseInt(o.id);
+        const isChecked = userObjectIds.has(objectId);
+        console.log(`Object ${o.id} (${o.name}): ${isChecked ? 'checked' : 'unchecked'}`);
+        return `
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
+            <input type="checkbox" name="object_${o.id}" ${isChecked ? 'checked' : ''} value="${o.id}">
+            ${o.name}${o.code ? ` (${o.code})` : ''}
+          </label>
+        `;
+      }).join('');
     }
 
     showModal(`
