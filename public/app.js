@@ -1882,15 +1882,31 @@ async function handleLogin(e) {
 }
 
 async function updateSyncStatus() {
-  const count = await db.syncQueue.count();
+  const isOnline = navigator.onLine;
   const el = $('#sync-status');
   if (el) {
-    el.textContent = count > 0 ? `В очереди: ${count}` : 'Нет операций';
+    // Get pending operations count
+    const pendingCount = await db.syncQueue.count();
+    
+    if (!isOnline) {
+      el.textContent = pendingCount > 0 
+        ? `🔴 Офлайн (${pendingCount} в очереди)` 
+        : '🔴 Офлайн';
+    } else {
+      el.textContent = pendingCount > 0 
+        ? `🟢 Онлайн (синхронизация: ${pendingCount})` 
+        : '🟢 Онлайн';
+    }
   }
 }
 
 // Initialize
 async function init() {
+  // Initialize sync manager
+  if (typeof SyncManager !== 'undefined') {
+    SyncManager.init(db);
+  }
+
   if (checkAuth()) {
     await loadData();
     await setView('heaters');
@@ -1900,14 +1916,16 @@ async function init() {
 
   // Listen for online/offline
   window.addEventListener('online', () => {
-    showToast('Онлайн');
+    showToast('🟢 Онлайн');
     render();
     syncQueue();
+    updateSyncStatus();
   });
 
   window.addEventListener('offline', () => {
-    showToast('Офлайн');
+    showToast('🔴 Офлайн');
     render();
+    updateSyncStatus();
   });
 }
 
@@ -1930,3 +1948,10 @@ window.showEditObjectModal = showEditObjectModal;
 window.handleEditObject = handleEditObject;
 window.showEditPremiseModal = showEditPremiseModal;
 window.handleEditPremise = handleEditPremise;
+
+// Sync queue function
+async function syncQueue() {
+  if (typeof SyncManager !== 'undefined') {
+    await SyncManager.sync();
+  }
+}

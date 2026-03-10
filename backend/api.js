@@ -1064,23 +1064,98 @@ router.post('/sync', authMiddleware(), async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
+
     const { operations } = req.body;
     const results = [];
-    
+
     for (const op of operations) {
       const { action, endpoint, method, data } = op;
-      
-      await client.query(
-        `INSERT INTO sync_log (user_id, action, payload, synced) VALUES ($1, $2, $3, true)`,
-        [req.user.id, action, JSON.stringify(data)]
-      );
-      
-      results.push({ action, success: true });
+
+      try {
+        // Log the operation
+        await client.query(
+          `INSERT INTO sync_log (user_id, action, payload, synced) VALUES ($1, $2, $3, true)`,
+          [req.user.id, action, JSON.stringify(data)]
+        );
+
+        // Execute the actual operation based on endpoint
+        if (endpoint.startsWith('/heaters/')) {
+          const heaterId = endpoint.split('/')[2];
+          
+          if (method === 'PUT') {
+            const { premise_id, name, serial, voltage_v, power_w, heating_element,
+                    protection_type, manufacture_date, decommission_date, status } = data;
+            
+            await client.query(
+              `UPDATE heaters SET 
+                premise_id = $1, name = $2, serial = $3, voltage_v = $4, 
+                power_w = $5, heating_element = $6, protection_type = $7,
+                manufacture_date = $8, decommission_date = $9, status = $10,
+                updated_at = CURRENT_TIMESTAMP
+              WHERE id = $11`,
+              [premise_id, name, serial, voltage_v, power_w, heating_element,
+               protection_type, manufacture_date, decommission_date, status, heaterId]
+            );
+          } else if (method === 'DELETE') {
+            await client.query(
+              'UPDATE heaters SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
+              [heaterId]
+            );
+          }
+        } else if (endpoint.startsWith('/premises/')) {
+          const parts = endpoint.split('/');
+          const premiseId = parts[2];
+          
+          if (parts[4] === 'note') {
+            if (method === 'PUT') {
+              await client.query(
+                'UPDATE premises SET note = $1 WHERE id = $2',
+                [data.note, premiseId]
+              );
+            } else if (method === 'DELETE') {
+              await client.query(
+                'UPDATE premises SET note = NULL WHERE id = $1',
+                [premiseId]
+              );
+            }
+          } else if (method === 'PUT') {
+            const { object_id, name, number, type } = data;
+            await client.query(
+              'UPDATE premises SET object_id = $1, name = $2, number = $3, type = $4 WHERE id = $5',
+              [object_id, name, number, type, premiseId]
+            );
+          } else if (method === 'DELETE') {
+            await client.query(
+              'UPDATE premises SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
+              [premiseId]
+            );
+          }
+        } else if (endpoint.startsWith('/objects/')) {
+          const objectId = endpoint.split('/')[2];
+          
+          if (method === 'PUT') {
+            const { name, code } = data;
+            await client.query(
+              'UPDATE objects SET name = $1, code = $2 WHERE id = $3',
+              [name, code, objectId]
+            );
+          } else if (method === 'DELETE') {
+            await client.query(
+              'UPDATE objects SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
+              [objectId]
+            );
+          }
+        }
+
+        results.push({ action, success: true });
+      } catch (opErr) {
+        console.error(`Sync operation failed for ${action}:`, opErr);
+        results.push({ action, success: false, error: opErr.message });
+      }
     }
-    
+
     await client.query('COMMIT');
-    res.json({ results });
+    res.json({ results, synced: results.filter(r => r.success).length });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Sync error:', err);
