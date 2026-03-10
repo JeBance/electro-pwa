@@ -376,6 +376,11 @@ function toggleSort(field) {
   renderHeaters();
 }
 
+function setFilter(status) {
+  filterStatus = status || '';
+  renderHeaters();
+}
+
 function renderListView() {
   // Filter and sort
   let filtered = [...heaters];
@@ -414,10 +419,10 @@ function renderListView() {
       <input type="text" placeholder="Поиск по названию, серийнику, наклейке..." value="${searchQuery}" oninput="searchQuery = this.value; renderHeaters()">
     </div>
     <div class="filters">
-      <div class="filter-chip ${!filterStatus ? 'active' : ''}" onclick="filterStatus = ''; renderHeaters()">Все</div>
-      <div class="filter-chip ${filterStatus === 'active' ? 'active' : ''}" onclick="filterStatus = 'active'; renderHeaters()">🟢 Активные</div>
-      <div class="filter-chip ${filterStatus === 'repair' ? 'active' : ''}" onclick="filterStatus = 'repair'; renderHeaters()">🟡 Ремонт</div>
-      <div class="filter-chip ${filterStatus === 'warehouse' ? 'active' : ''}" onclick="filterStatus = 'warehouse'; renderHeaters()">🔵 Склад</div>
+      <div class="filter-chip ${!filterStatus ? 'active' : ''}" onclick="setFilter('')">Все</div>
+      <div class="filter-chip ${filterStatus === 'active' ? 'active' : ''}" onclick="setFilter('active')">🟢 Активные</div>
+      <div class="filter-chip ${filterStatus === 'repair' ? 'active' : ''}" onclick="setFilter('repair')">🟡 Ремонт</div>
+      <div class="filter-chip ${filterStatus === 'warehouse' ? 'active' : ''}" onclick="setFilter('warehouse')">🔵 Склад</div>
     </div>
     <div class="table-container">
       <table>
@@ -1297,6 +1302,9 @@ async function showUserObjectsModal(userId, userName) {
 // Make functions globally accessible for onclick handlers
 window.showUserObjectsModal = showUserObjectsModal;
 window.saveUserObjects = saveUserObjects;
+window.toggleSort = toggleSort;
+window.setFilter = setFilter;
+window.renderHeaters = renderHeaters;
 
 async function saveUserObjects(userId) {
   const modal = $('.modal-overlay');
