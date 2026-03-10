@@ -376,6 +376,11 @@ function renderListView() {
   filtered.sort((a, b) => {
     let aVal = a[sortField] || '';
     let bVal = b[sortField] || '';
+    // Handle premise_name from joined data
+    if (sortField === 'premise_name') {
+      aVal = a.premise_name || '';
+      bVal = b.premise_name || '';
+    }
     if (typeof aVal === 'string') aVal = aVal.toLowerCase();
     if (typeof bVal === 'string') bVal = bVal.toLowerCase();
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
@@ -400,12 +405,15 @@ function renderListView() {
         <thead>
           <tr>
             <th onclick="toggleSort('sticker_number')">Инв. №${sortIcon('sticker_number')}</th>
+            <th onclick="toggleSort('premise_name')">Помещение${sortIcon('premise_name')}</th>
             <th onclick="toggleSort('name')">Наименование${sortIcon('name')}</th>
             <th onclick="toggleSort('serial')">Зав. №${sortIcon('serial')}</th>
             <th onclick="toggleSort('voltage_v')">U, В${sortIcon('voltage_v')}</th>
             <th onclick="toggleSort('power_w')">P, Вт${sortIcon('power_w')}</th>
             <th onclick="toggleSort('heating_element')">Нагреватель${sortIcon('heating_element')}</th>
             <th onclick="toggleSort('protection_type')">Исполнение${sortIcon('protection_type')}</th>
+            <th onclick="toggleSort('manufacture_date')">Дата изг.${sortIcon('manufacture_date')}</th>
+            <th onclick="toggleSort('decommission_date')">Дата вывода${sortIcon('decommission_date')}</th>
             <th onclick="toggleSort('status')">Статус${sortIcon('status')}</th>
           </tr>
         </thead>
@@ -413,12 +421,15 @@ function renderListView() {
           ${filtered.map(h => `
             <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
               <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
+              <td>${h.premise_name || '—'}</td>
               <td>${h.name}</td>
               <td>${h.serial || 'Б/Н'}</td>
               <td>${h.voltage_v || '—'}</td>
               <td>${h.power_w ? h.power_w : (h.power_kw ? Math.round(h.power_kw * 1000) : '—')}</td>
               <td>${h.heating_element || '—'}</td>
               <td>${h.protection_type || '—'}</td>
+              <td>${formatDate(h.manufacture_date)}</td>
+              <td>${formatDate(h.decommission_date)}</td>
               <td>${getStatusBadge(h.status)}</td>
             </tr>
           `).join('')}
@@ -804,7 +815,10 @@ async function handleAddHeater(e) {
     closeModal();
     showToast('Обогреватель добавлен');
     await loadData();
-    renderHeaters();
+    // Обновляем текущий вид
+    if (currentView === 'heaters') {
+      renderHeaters();
+    }
   } catch (err) {
     showToast(err.message);
   }
@@ -1059,7 +1073,10 @@ async function handleEditHeater(e, id) {
     closeModal();
     showToast('Изменения сохранены');
     await loadData();
-    renderHeaters();
+    // Обновляем текущий вид
+    if (currentView === 'heaters') {
+      renderHeaters();
+    }
   } catch (err) {
     showToast(err.message);
   }

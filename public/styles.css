@@ -296,13 +296,13 @@ body {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
-  min-width: 800px;
+  font-size: 11px;
+  min-width: 1200px;
 }
 
 th {
   background: var(--bg-tertiary);
-  padding: 8px 6px;
+  padding: 8px 4px;
   text-align: left;
   font-weight: 600;
   cursor: pointer;
