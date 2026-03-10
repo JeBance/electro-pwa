@@ -374,7 +374,8 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
     let sql = `
       SELECT h.*, p.name as premise_name, p.number as premise_number,
              o.name as object_name, o.id as object_id,
-             s.number as sticker_number
+             s.number as sticker_number,
+             (SELECT MAX(e.created_at) FROM heater_events e WHERE e.heater_id = h.id) as last_modified
       FROM heaters h
       LEFT JOIN premises p ON h.premise_id = p.id
       LEFT JOIN objects o ON p.object_id = o.id

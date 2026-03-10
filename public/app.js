@@ -414,6 +414,7 @@ function renderListView() {
             <th onclick="toggleSort('protection_type')">Исполнение${sortIcon('protection_type')}</th>
             <th onclick="toggleSort('manufacture_date')">Дата изг.${sortIcon('manufacture_date')}</th>
             <th onclick="toggleSort('decommission_date')">Дата вывода${sortIcon('decommission_date')}</th>
+            <th onclick="toggleSort('last_modified')">Изменён${sortIcon('last_modified')}</th>
             <th onclick="toggleSort('status')">Статус${sortIcon('status')}</th>
           </tr>
         </thead>
@@ -430,6 +431,7 @@ function renderListView() {
               <td>${h.protection_type || '—'}</td>
               <td>${formatDate(h.manufacture_date)}</td>
               <td>${formatDate(h.decommission_date)}</td>
+              <td>${formatDate(h.last_modified)}</td>
               <td>${getStatusBadge(h.status)}</td>
             </tr>
           `).join('')}
