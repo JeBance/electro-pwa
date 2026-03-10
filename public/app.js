@@ -1108,15 +1108,15 @@ async function handleEditHeater(e, id) {
   e.stopPropagation();
 
   console.log('handleEditHeater called with id:', id);
-  
-  const form = e.currentTarget || e.target;
+
+  const form = e.target.closest('form');
   console.log('Form element:', form);
-  
+
   if (!form) {
     console.error('Form not found');
     return;
   }
-  
+
   const status = form.status?.value;
   let premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
 
@@ -1152,18 +1152,24 @@ async function handleEditHeater(e, id) {
     });
 
     console.log('Save response:', response);
-    
-    // Close modal immediately after successful save
-    const modal = document.querySelector('.modal-overlay');
+
+    // Close modal - find and remove the overlay
+    const modal = form.closest('.modal-overlay');
     if (modal) {
       modal.remove();
-      console.log('Modal removed');
+      console.log('Modal removed via form.closest');
+    } else {
+      const fallbackModal = document.querySelector('.modal-overlay');
+      if (fallbackModal) {
+        fallbackModal.remove();
+        console.log('Modal removed via querySelector');
+      }
     }
-    
+
     // Refresh data
     await loadData();
     render();
-    
+
     showToast('Изменения сохранены');
   } catch (err) {
     console.error('Save error:', err);
