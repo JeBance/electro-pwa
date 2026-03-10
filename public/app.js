@@ -344,7 +344,7 @@ function renderListView() {
     filtered = filtered.filter(h =>
       h.name.toLowerCase().includes(q) ||
       (h.serial && h.serial.toLowerCase().includes(q)) ||
-      (h.inventory_number && h.inventory_number.toLowerCase().includes(q))
+      (h.sticker_number && h.sticker_number.toLowerCase().includes(q))
     );
   }
 
@@ -362,7 +362,7 @@ function renderListView() {
 
   let html = `
     <div class="search-box">
-      <input type="text" placeholder="Поиск по названию, серийнику, инв. номеру..." value="${searchQuery}" oninput="searchQuery = this.value; renderHeaters()">
+      <input type="text" placeholder="Поиск по названию, серийнику, наклейке..." value="${searchQuery}" oninput="searchQuery = this.value; renderHeaters()">
     </div>
     <div class="filters">
       <div class="filter-chip ${!filterStatus ? 'active' : ''}" onclick="filterStatus = ''; renderHeaters()">Все</div>
@@ -375,21 +375,19 @@ function renderListView() {
         <thead>
           <tr>
             <th onclick="sortField = 'name'; sortDir = sortField === 'name' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Наименование${sortIcon('name')}</th>
-            <th onclick="sortField = 'inventory_number'; sortDir = sortField === 'inventory_number' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Инв. №${sortIcon('inventory_number')}</th>
             <th onclick="sortField = 'serial'; sortDir = sortField === 'serial' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Зав. №${sortIcon('serial')}</th>
             <th onclick="sortField = 'voltage_v'; sortDir = sortField === 'voltage_v' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">U, В${sortIcon('voltage_v')}</th>
             <th onclick="sortField = 'power_w'; sortDir = sortField === 'power_w' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">P, Вт${sortIcon('power_w')}</th>
             <th>Нагреватель</th>
             <th>Исполнение</th>
             <th onclick="sortField = 'status'; sortDir = sortField === 'status' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Статус${sortIcon('status')}</th>
-            <th>Наклейка</th>
+            <th>Инв. №</th>
           </tr>
         </thead>
         <tbody>
           ${filtered.map(h => `
             <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
               <td>${h.name}</td>
-              <td>${h.inventory_number || '—'}</td>
               <td>${h.serial || 'Б/Н'}</td>
               <td>${h.voltage_v || '—'}</td>
               <td>${h.power_w ? h.power_w : (h.power_kw ? Math.round(h.power_kw * 1000) : '—')}</td>
@@ -555,6 +553,11 @@ function showAddHeaterModal() {
   const lastObjectId = localStorage.getItem('last_object_id') || '';
   const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
+  // Дата вывода по умолчанию (+10 лет от текущей даты)
+  const defaultDecommission = new Date();
+  defaultDecommission.setFullYear(defaultDecommission.getFullYear() + 10);
+  const defaultDecommissionStr = defaultDecommission.toISOString().split('T')[0];
+
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Добавить обогреватель</div>
@@ -583,12 +586,8 @@ function showAddHeaterModal() {
         <input type="text" name="serial" placeholder="Серийный номер">
       </div>
       <div class="input-group">
-        <label>Инвентарный №</label>
-        <input type="text" name="inventory_number" placeholder="Инв. номер">
-      </div>
-      <div class="input-group">
         <label>Напряжение, В</label>
-        <input type="number" name="voltage_v" placeholder="220" value="220">
+        <input type="number" name="voltage_v" value="220">
       </div>
       <div class="input-group">
         <label>Мощность, Вт</label>
@@ -596,19 +595,24 @@ function showAddHeaterModal() {
       </div>
       <div class="input-group">
         <label>Нагревательный элемент</label>
-        <input type="text" name="heating_element" placeholder="Тип нагревателя">
+        <input type="text" name="heating_element" value="ТЭН">
       </div>
       <div class="input-group">
         <label>Исполнение (тип защиты)</label>
-        <input type="text" name="protection_type" placeholder="Например: IP24">
+        <select name="protection_type">
+          <option value="Конвектор">Конвектор</option>
+          <option value="Радиатор масляный">Радиатор масляный</option>
+          <option value="Тепловая завеса">Тепловая завеса</option>
+          <option value="Тепловая пушка">Тепловая пушка</option>
+        </select>
       </div>
       <div class="input-group">
         <label>Дата изготовления</label>
-        <input type="date" name="manufacture_date">
+        <input type="date" name="manufacture_date" onchange="updateDecommissionDate(this.value)">
       </div>
       <div class="input-group">
         <label>Дата вывода из эксплуатации</label>
-        <input type="date" name="decommission_date">
+        <input type="date" name="decommission_date" value="${defaultDecommissionStr}" id="decommission-date">
       </div>
       <div class="input-group">
         <label>Статус</label>
@@ -630,6 +634,26 @@ function showAddHeaterModal() {
   `);
 }
 
+function updateDecommissionDate(manufactureDate) {
+  if (!manufactureDate) return;
+  const date = new Date(manufactureDate);
+  date.setFullYear(date.getFullYear() + 10);
+  const decommissionInput = $('#decommission-date');
+  if (decommissionInput) {
+    decommissionInput.value = date.toISOString().split('T')[0];
+  }
+}
+
+function updateEditDecommissionDate(manufactureDate) {
+  if (!manufactureDate) return;
+  const date = new Date(manufactureDate);
+  date.setFullYear(date.getFullYear() + 10);
+  const decommissionInput = $('#edit-decommission-date');
+  if (decommissionInput) {
+    decommissionInput.value = date.toISOString().split('T')[0];
+  }
+}
+
 function updatePremisesSelect(objectId) {
   const select = $('#premise-select');
   const filtered = premises.filter(p => p.object_id == objectId);
@@ -649,11 +673,10 @@ async function handleAddHeater(e) {
     premise_id: parseInt(form.premise_id.value),
     name: form.name.value,
     serial: form.serial.value || null,
-    inventory_number: form.inventory_number.value || null,
     voltage_v: parseInt(form.voltage_v.value) || 220,
     power_w: form.power_w.value ? parseInt(form.power_w.value) : null,
-    heating_element: form.heating_element.value || null,
-    protection_type: form.protection_type.value || null,
+    heating_element: form.heating_element.value || 'ТЭН',
+    protection_type: form.protection_type.value || 'Конвектор',
     manufacture_date: form.manufacture_date.value || null,
     decommission_date: form.decommission_date.value || null,
     status: form.status.value
@@ -694,10 +717,6 @@ function showHeaterDetail(id) {
         <div class="detail-value">${premise?.name || '—'}</div>
       </div>
       <div class="detail-item">
-        <div class="detail-label">Инв. №</div>
-        <div class="detail-value">${heater.inventory_number || '—'}</div>
-      </div>
-      <div class="detail-item">
         <div class="detail-label">Зав. №</div>
         <div class="detail-value">${heater.serial || '—'}</div>
       </div>
@@ -730,7 +749,7 @@ function showHeaterDetail(id) {
         <div class="detail-value">${getStatusBadge(heater.status)}</div>
       </div>
       <div class="detail-item">
-        <div class="detail-label">Наклейка</div>
+        <div class="detail-label">Инв. № (наклейка)</div>
         <div class="detail-value">${heater.sticker_number ? `<span class="sticker-number">${heater.sticker_number}</span>` : '—'}</div>
       </div>
     </div>
@@ -790,6 +809,14 @@ function showEditHeaterModal(id) {
     .map(p => `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`)
     .join('');
 
+  // Дата вывода по умолчанию (+10 лет от даты изготовления)
+  let defaultDecommission = '';
+  if (heater.manufacture_date) {
+    const date = new Date(heater.manufacture_date);
+    date.setFullYear(date.getFullYear() + 10);
+    defaultDecommission = date.toISOString().split('T')[0];
+  }
+
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Редактировать</div>
@@ -819,10 +846,6 @@ function showEditHeaterModal(id) {
         <input type="text" name="serial" value="${heater.serial || ''}">
       </div>
       <div class="input-group">
-        <label>Инвентарный №</label>
-        <input type="text" name="inventory_number" value="${heater.inventory_number || ''}">
-      </div>
-      <div class="input-group">
         <label>Напряжение, В</label>
         <input type="number" name="voltage_v" value="${heater.voltage_v || 220}">
       </div>
@@ -832,19 +855,24 @@ function showEditHeaterModal(id) {
       </div>
       <div class="input-group">
         <label>Нагревательный элемент</label>
-        <input type="text" name="heating_element" value="${heater.heating_element || ''}">
+        <input type="text" name="heating_element" value="${heater.heating_element || 'ТЭН'}">
       </div>
       <div class="input-group">
         <label>Исполнение (тип защиты)</label>
-        <input type="text" name="protection_type" value="${heater.protection_type || ''}">
+        <select name="protection_type">
+          <option value="Конвектор" ${heater.protection_type === 'Конвектор' ? 'selected' : ''}>Конвектор</option>
+          <option value="Радиатор масляный" ${heater.protection_type === 'Радиатор масляный' ? 'selected' : ''}>Радиатор масляный</option>
+          <option value="Тепловая завеса" ${heater.protection_type === 'Тепловая завеса' ? 'selected' : ''}>Тепловая завеса</option>
+          <option value="Тепловая пушка" ${heater.protection_type === 'Тепловая пушка' ? 'selected' : ''}>Тепловая пушка</option>
+        </select>
       </div>
       <div class="input-group">
         <label>Дата изготовления</label>
-        <input type="date" name="manufacture_date" value="${heater.manufacture_date || ''}">
+        <input type="date" name="manufacture_date" value="${heater.manufacture_date || ''}" onchange="updateEditDecommissionDate(this.value)">
       </div>
       <div class="input-group">
         <label>Дата вывода из эксплуатации</label>
-        <input type="date" name="decommission_date" value="${heater.decommission_date || ''}">
+        <input type="date" name="decommission_date" value="${heater.decommission_date || defaultDecommission}" id="edit-decommission-date">
       </div>
       <div class="input-group">
         <label>Статус</label>
@@ -867,11 +895,10 @@ async function handleEditHeater(e, id) {
     premise_id: parseInt(form.premise_id.value),
     name: form.name.value,
     serial: form.serial.value || null,
-    inventory_number: form.inventory_number.value || null,
     voltage_v: parseInt(form.voltage_v.value) || 220,
     power_w: form.power_w.value ? parseInt(form.power_w.value) : null,
-    heating_element: form.heating_element.value || null,
-    protection_type: form.protection_type.value || null,
+    heating_element: form.heating_element.value || 'ТЭН',
+    protection_type: form.protection_type.value,
     manufacture_date: form.manufacture_date.value || null,
     decommission_date: form.decommission_date.value || null,
     status: form.status.value
