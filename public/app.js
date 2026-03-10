@@ -416,7 +416,7 @@ function renderListView() {
 
   let html = `
     <div class="search-box">
-      <input type="text" placeholder="Поиск по названию, серийнику, наклейке..." value="${searchQuery}" oninput="searchQuery = this.value; renderHeaters()">
+      <input type="text" placeholder="Поиск по названию, серийнику, наклейке..." value="${searchQuery}" oninput="searchQuery = this.value; render()">
     </div>
     <div class="filters">
       <div class="filter-chip ${!filterStatus ? 'active' : ''}" onclick="setFilter('')">Все</div>
@@ -424,58 +424,58 @@ function renderListView() {
       <div class="filter-chip ${filterStatus === 'repair' ? 'active' : ''}" onclick="setFilter('repair')">🟡 Ремонт</div>
       <div class="filter-chip ${filterStatus === 'warehouse' ? 'active' : ''}" onclick="setFilter('warehouse')">🔵 Склад</div>
     </div>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th onclick="toggleSort('sticker_number')">Инв. №${sortIcon('sticker_number')}</th>
-            <th onclick="toggleSort('premise_name')">Помещение${sortIcon('premise_name')}</th>
-            <th onclick="toggleSort('name')">Наименование${sortIcon('name')}</th>
-            <th onclick="toggleSort('serial')">Зав. №${sortIcon('serial')}</th>
-            <th onclick="toggleSort('voltage_v')">U, В${sortIcon('voltage_v')}</th>
-            <th onclick="toggleSort('power_w')">P, Вт${sortIcon('power_w')}</th>
-            <th onclick="toggleSort('heating_element')">Нагреватель${sortIcon('heating_element')}</th>
-            <th onclick="toggleSort('protection_type')">Исполнение${sortIcon('protection_type')}</th>
-            <th onclick="toggleSort('manufacture_date')">Дата изг.${sortIcon('manufacture_date')}</th>
-            <th onclick="toggleSort('decommission_date')">Дата вывода${sortIcon('decommission_date')}</th>
-            <th onclick="toggleSort('last_modified')">Изменён${sortIcon('last_modified')}</th>
-            <th onclick="toggleSort('status')">Статус${sortIcon('status')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filtered.map(h => `
-            <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
-              <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
-              <td>${h.premise_name || '—'}</td>
-              <td>${h.name}</td>
-              <td>${h.serial || 'Б/Н'}</td>
-              <td>${h.voltage_v || '—'}</td>
-              <td>${h.power_w ? h.power_w : (h.power_kw ? Math.round(h.power_kw * 1000) : '—')}</td>
-              <td>${h.heating_element || '—'}</td>
-              <td>${h.protection_type || '—'}</td>
-              <td>${formatDate(h.manufacture_date)}</td>
-              <td>${formatDate(h.decommission_date)}</td>
-              <td>${formatDate(h.last_modified)}</td>
-              <td>${getStatusBadge(h.status)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
   `;
-  
+
   if (filtered.length === 0) {
-    html = `
-      <div class="search-box">
-        <input type="text" placeholder="Поиск..." value="${searchQuery}" oninput="searchQuery = this.value; renderHeaters()">
-      </div>
+    html += `
       <div class="empty-state">
         <div class="empty-state-icon">🔍</div>
         <div class="empty-state-text">Ничего не найдено</div>
       </div>
     `;
+  } else {
+    html += `
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="toggleSort('sticker_number')">Инв. №${sortIcon('sticker_number')}</th>
+              <th onclick="toggleSort('premise_name')">Помещение${sortIcon('premise_name')}</th>
+              <th onclick="toggleSort('name')">Наименование${sortIcon('name')}</th>
+              <th onclick="toggleSort('serial')">Зав. №${sortIcon('serial')}</th>
+              <th onclick="toggleSort('voltage_v')">U, В${sortIcon('voltage_v')}</th>
+              <th onclick="toggleSort('power_w')">P, Вт${sortIcon('power_w')}</th>
+              <th onclick="toggleSort('heating_element')">Нагреватель${sortIcon('heating_element')}</th>
+              <th onclick="toggleSort('protection_type')">Исполнение${sortIcon('protection_type')}</th>
+              <th onclick="toggleSort('manufacture_date')">Дата изг.${sortIcon('manufacture_date')}</th>
+              <th onclick="toggleSort('decommission_date')">Дата вывода${sortIcon('decommission_date')}</th>
+              <th onclick="toggleSort('last_modified')">Изменён${sortIcon('last_modified')}</th>
+              <th onclick="toggleSort('status')">Статус${sortIcon('status')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(h => `
+              <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
+                <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
+                <td>${h.premise_name || '—'}</td>
+                <td>${h.name}</td>
+                <td>${h.serial || 'Б/Н'}</td>
+                <td>${h.voltage_v || '—'}</td>
+                <td>${h.power_w ? h.power_w : (h.power_kw ? Math.round(h.power_kw * 1000) : '—')}</td>
+                <td>${h.heating_element || '—'}</td>
+                <td>${h.protection_type || '—'}</td>
+                <td>${formatDate(h.manufacture_date)}</td>
+                <td>${formatDate(h.decommission_date)}</td>
+                <td>${formatDate(h.last_modified)}</td>
+                <td>${getStatusBadge(h.status)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
   }
-  
+
   return html;
 }
 
