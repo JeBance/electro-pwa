@@ -704,10 +704,13 @@ function showHeaterDetail(id) {
   selectedHeater = heater;
   const premise = premises.find(p => p.id === heater.premise_id);
   const obj = objects.find(o => o.id === premise?.object_id);
+  
+  // Формируем заголовок с инв. номером (наклейкой)
+  const stickerTitle = heater.sticker_number ? `№${heater.sticker_number} ` : '';
 
   let html = `
     <div class="modal-header">
-      <div class="modal-title">${heater.name}</div>
+      <div class="modal-title">${stickerTitle}${heater.name}</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     ${heater.photo_url ? `<img src="${heater.photo_url}" class="detail-image">` : ''}
@@ -719,6 +722,10 @@ function showHeaterDetail(id) {
       <div class="detail-item">
         <div class="detail-label">Помещение</div>
         <div class="detail-value">${premise?.name || '—'}</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Инв. №</div>
+        <div class="detail-value">${heater.sticker_number ? `<span class="sticker-number">${heater.sticker_number}</span>` : '—'}</div>
       </div>
       <div class="detail-item">
         <div class="detail-label">Зав. №</div>
@@ -751,10 +758,6 @@ function showHeaterDetail(id) {
       <div class="detail-item">
         <div class="detail-label">Статус</div>
         <div class="detail-value">${getStatusBadge(heater.status)}</div>
-      </div>
-      <div class="detail-item">
-        <div class="detail-label">Инв. № (наклейка)</div>
-        <div class="detail-value">${heater.sticker_number ? `<span class="sticker-number">${heater.sticker_number}</span>` : '—'}</div>
       </div>
     </div>
     <div class="admin-section-title">История</div>
