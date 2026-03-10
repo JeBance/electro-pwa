@@ -925,16 +925,6 @@ function showHeaterDetail(id) {
   loadHeaterEvents(heater.id);
 }
 
-function getEventTypeName(eventType) {
-  const types = {
-    'status_change': 'Изменение статуса',
-    'premise_change': 'Перемещение',
-    'sticker_applied': 'Наклейка',
-    'photo_updated': 'Обновление фото'
-  };
-  return types[eventType] || eventType;
-}
-
 async function loadHeaterEvents(heaterId) {
   try {
     const events = await api(`/events?heater_id=${heaterId}&limit=20`);
@@ -951,7 +941,7 @@ async function loadHeaterEvents(heaterId) {
         <div class="timeline-dot"></div>
         <div class="timeline-content">
           <div class="timeline-date">${formatDate(e.created_at)}</div>
-          <div class="timeline-text"><strong>${getEventTypeName(e.event_type)}</strong><br>${e.comment || ''} <br><small>${e.user_name || 'Система'}</small></div>
+          <div class="timeline-text">${e.comment || ''}<br><small>${e.user_name || 'Система'}</small></div>
         </div>
       </div>
     `).join('');

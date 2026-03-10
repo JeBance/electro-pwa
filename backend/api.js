@@ -516,6 +516,13 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
       return res.status(400).json({ error: 'Premise ID and name required' });
     }
 
+    const statusNames = {
+      'active': 'активен',
+      'repair': 'в ремонте',
+      'warehouse': 'на складе',
+      'moved': 'перемещён'
+    };
+
     // Auto-generate sticker number if not provided
     let nextStickerNum;
     if (sticker_number) {
@@ -547,7 +554,7 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
     await client.query(
       `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment)
        VALUES ($1, $2, 'status_change', $3, $4)`,
-      [heater.id, req.user.id, heater.status, 'Initial status']
+      [heater.id, req.user.id, heater.status, 'Обогреватель добавлен со статусом "' + (statusNames[heater.status] || heater.status) + '"']
     );
 
     await client.query('COMMIT');
@@ -589,7 +596,7 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
-        [id, req.user.id, current.premise_id, premise_id, `Moved from ${current.premise_id} to ${premise_id}`]
+        [id, req.user.id, current.premise_id, premise_id, `Перемещён из помещения #${current.premise_id} в помещение #${premise_id}`]
       );
     }
     
@@ -620,10 +627,18 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
     if (status !== undefined && status !== current.status) {
       updates.push(`status = $${paramIndex++}`);
       params.push(status);
+      const statusNames = {
+        'active': 'активен',
+        'repair': 'в ремонте',
+        'warehouse': 'на складе',
+        'moved': 'перемещён'
+      };
+      const oldStatusName = statusNames[current.status] || current.status;
+      const newStatusName = statusNames[status] || status;
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
          VALUES ($1, $2, 'status_change', $3, $4, $5)`,
-        [id, req.user.id, current.status, status, `Status changed from ${current.status} to ${status}`]
+        [id, req.user.id, current.status, status, `Статус изменён с "${oldStatusName}" на "${newStatusName}"`]
       );
     }
 
