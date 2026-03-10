@@ -731,8 +731,8 @@ function showHeaterDetail(id) {
   const premise = premises.find(p => p.id === heater.premise_id);
   const obj = objects.find(o => o.id === premise?.object_id);
   
-  // Формируем заголовок с инв. номером (наклейкой)
-  const stickerTitle = heater.sticker_number ? `№${heater.sticker_number} ` : '';
+  // Формируем заголовок: Инв. № - Название
+  const stickerTitle = heater.sticker_number ? `${heater.sticker_number} - ` : '';
 
   let html = `
     <div class="modal-header">
