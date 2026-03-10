@@ -373,12 +373,12 @@ function toggleSort(field) {
     sortField = field;
     sortDir = 'asc';
   }
-  renderHeaters();
+  render();
 }
 
 function setFilter(status) {
   filterStatus = status || '';
-  renderHeaters();
+  render();
 }
 
 function renderListView() {
