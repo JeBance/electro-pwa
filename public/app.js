@@ -640,8 +640,8 @@ function showAddHeaterModal() {
       </div>
       <div class="input-group">
         <label>Помещение (место установки)</label>
-        <select name="premise_id" id="premise-select" required>
-          <option value="">Сначала выберите объект</option>
+        <select name="premise_id" id="premise-select">
+          <option value="">Без помещения (на склад)</option>
         </select>
       </div>
       <div class="input-group">
@@ -796,8 +796,10 @@ function updateEditDecommissionDate(manufactureDate) {
 
 function updatePremisesSelect(objectId) {
   const select = $('#premise-select');
+  if (!select) return;
+  
   const filtered = premises.filter(p => p.object_id == objectId);
-  select.innerHTML = '<option value="">Выберите помещение</option>' +
+  select.innerHTML = '<option value="">Без помещения (на склад)</option>' +
     filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 }
 
@@ -809,11 +811,16 @@ async function handleAddHeater(e) {
   localStorage.setItem('last_object_id', objectId);
 
   const status = form.status.value;
-  let premiseId = parseInt(form.premise_id.value);
-  
+  let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
+
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id.value) {
     premiseId = parseInt(form.move_premise_id.value);
+  }
+  
+  // Если статус "На складе" или нет помещения, убираем помещение
+  if (status === 'warehouse' || !premiseId) {
+    premiseId = null;
   }
 
   const data = {
@@ -987,8 +994,8 @@ function showEditHeaterModal(id) {
       </div>
       <div class="input-group">
         <label>Помещение</label>
-        <select name="premise_id" id="premise-select-edit" required>
-          <option value="">Помещение</option>
+        <select name="premise_id" id="premise-select-edit">
+          <option value="">Без помещения (на склад)</option>
           ${premisesHtml}
         </select>
       </div>
@@ -1059,15 +1066,15 @@ async function handleEditHeater(e, id) {
   e.preventDefault();
   const form = e.target;
   const status = form.status.value;
-  let premiseId = parseInt(form.premise_id.value);
+  let premiseId = form.premise_id.value ? parseInt(form.premise_id.value) : null;
   
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
   
-  // Если статус "На складе", убираем помещение
-  if (status === 'warehouse') {
+  // Если статус "На складе" или нет помещения, убираем помещение
+  if (status === 'warehouse' || !premiseId) {
     premiseId = null;
   }
 

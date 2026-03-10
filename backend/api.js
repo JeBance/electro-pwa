@@ -511,10 +511,14 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
     const { premise_id, serial, name, power_kw, power_w, elements, heating_element,
             manufacture_date, decommission_date, inventory_number, voltage_v,
             protection_type, installation_location, status, sticker_number } = req.body;
-    if (!premise_id || !name) {
+    if (!name) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Premise ID and name required' });
+      return res.status(400).json({ error: 'Name required' });
     }
+
+    // If no premise_id, force warehouse status
+    const finalStatus = (!premise_id || premise_id === null) ? 'warehouse' : (status || 'active');
+    const finalPremiseId = (!premise_id || premise_id === null) ? null : premise_id;
 
     // Auto-generate sticker number if not provided
     let nextStickerNum;
@@ -529,13 +533,13 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
 
     const heaterResult = await client.query(
       `INSERT INTO heaters (premise_id, serial, name, power_kw, power_w, elements, heating_element,
-            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type,
+            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
             installation_location, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [premise_id, serial || null, name, power_kw || null, power_w || null, elements || null,
-       heating_element || null, manufacture_date || null, decommission_date || null,
+      [finalPremiseId, serial || null, name, power_kw || null, power_w || null, elements || null, 
+       heating_element || null, manufacture_date || null, decommission_date || null, 
        inventory_number || null, voltage_v || 220, protection_type || null,
-       installation_location || null, status || 'active']
+       installation_location || null, finalStatus]
     );
     const heater = heaterResult.rows[0];
 
@@ -544,11 +548,21 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
       [heater.id, nextStickerNum, req.user.id]
     );
 
+    // Log creation event
     await client.query(
       `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment)
        VALUES ($1, $2, 'status_change', $3, $4)`,
-      [heater.id, req.user.id, heater.status, 'Создана карточка обогревателя']
+      [heater.id, req.user.id, finalStatus, 'Создана карточка обогревателя']
     );
+    
+    // If created without premise, log warehouse move
+    if (!finalPremiseId) {
+      await client.query(
+        `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment)
+         VALUES ($1, $2, 'premise_change', $3, $4)`,
+        [heater.id, req.user.id, 'warehouse', 'Обогреватель перемещён на склад']
+      );
+    }
 
     await client.query('COMMIT');
     res.status(201).json(heater);
