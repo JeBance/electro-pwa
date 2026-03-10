@@ -18,6 +18,8 @@ const SyncManager = {
       synced: false
     });
 
+    console.log('Operation queued:', operation.endpoint, 'Total pending:', await this.db.syncQueue.count());
+
     // Try to sync if online
     if (navigator.onLine) {
       this.sync();
@@ -25,13 +27,24 @@ const SyncManager = {
   },
 
   async sync() {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine) {
+      console.log('Sync skipped: offline');
+      return;
+    }
 
     const operations = await this.db.syncQueue.toArray();
-    if (operations.length === 0) return;
+    if (operations.length === 0) {
+      console.log('Sync skipped: queue empty');
+      return;
+    }
+
+    console.log('Sync starting:', operations.length, 'operations');
 
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      console.log('Sync skipped: no token');
+      return;
+    }
 
     try {
       const response = await fetch('/api/sync', {
@@ -43,16 +56,24 @@ const SyncManager = {
         body: JSON.stringify({ operations })
       });
 
+      console.log('Sync response status:', response.status);
+
       if (response.ok) {
+        const result = await response.json();
+        console.log('Sync completed:', result);
         await this.db.syncQueue.clear();
-        console.log('Sync completed successfully');
+        console.log('Sync queue cleared');
+        
         // Refresh data after sync
         if (typeof loadData === 'function') {
           loadData();
         }
+      } else {
+        const errorText = await response.text();
+        console.error('Sync failed with status:', response.status, errorText);
       }
     } catch (err) {
-      console.error('Sync failed:', err);
+      console.error('Sync failed with error:', err);
     }
   },
 
@@ -64,6 +85,7 @@ const SyncManager = {
 
 // Auto-sync on online event
 window.addEventListener('online', () => {
+  console.log('Online event - triggering sync');
   SyncManager.sync();
 });
 

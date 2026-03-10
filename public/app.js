@@ -592,7 +592,7 @@ function renderAdmin() {
 
 function renderProfile() {
   const isOnline = navigator.onLine;
-  
+
   return `
     <div class="profile-header">
       <div class="profile-avatar">${getInitials(currentUser?.login || 'U')}</div>
@@ -608,6 +608,11 @@ function renderProfile() {
         <span class="settings-item-label">Синхронизация</span>
         <span id="sync-status">—</span>
       </div>
+      ${isOnline ? `
+      <div class="settings-item">
+        <button class="btn btn-secondary btn-small" onclick="forceSync()">🔄 Синхронизировать</button>
+      </div>
+      ` : ''}
       <button class="btn btn-danger" onclick="logout()" style="margin-top:20px">Выйти</button>
     </div>
   `;
@@ -2028,7 +2033,7 @@ async function updateSyncStatus() {
         : '🔴 Офлайн';
     } else {
       el.textContent = pendingCount > 0 
-        ? `🟢 Онлайн (синхронизация: ${pendingCount})` 
+        ? `🟡 Синхронизация (${pendingCount})` 
         : '🟢 Онлайн';
     }
   }
@@ -2085,11 +2090,22 @@ window.showEditObjectModal = showEditObjectModal;
 window.handleEditObject = handleEditObject;
 window.showEditPremiseModal = showEditPremiseModal;
 window.handleEditPremise = handleEditPremise;
+window.forceSync = forceSync;
 
 // Sync queue function
 async function syncQueue() {
   if (typeof SyncManager !== 'undefined') {
+    console.log('Manual sync triggered');
     await SyncManager.sync();
+  }
+}
+
+// Force sync function (for manual trigger)
+async function forceSync() {
+  if (typeof SyncManager !== 'undefined') {
+    console.log('Force sync triggered');
+    await SyncManager.sync();
+    updateSyncStatus();
   }
 }
 
