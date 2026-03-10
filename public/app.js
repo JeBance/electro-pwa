@@ -347,6 +347,16 @@ function renderHeaterItem(h) {
   `;
 }
 
+function toggleSort(field) {
+  if (sortField === field) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField = field;
+    sortDir = 'asc';
+  }
+  renderHeaters();
+}
+
 function renderListView() {
   // Filter and sort
   let filtered = [...heaters];
@@ -389,14 +399,14 @@ function renderListView() {
       <table>
         <thead>
           <tr>
-            <th onclick="sortField = 'sticker_number'; sortDir = sortField === 'sticker_number' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Инв. №${sortIcon('sticker_number')}</th>
-            <th onclick="sortField = 'name'; sortDir = sortField === 'name' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Наименование${sortIcon('name')}</th>
-            <th onclick="sortField = 'serial'; sortDir = sortField === 'serial' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Зав. №${sortIcon('serial')}</th>
-            <th onclick="sortField = 'voltage_v'; sortDir = sortField === 'voltage_v' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">U, В${sortIcon('voltage_v')}</th>
-            <th onclick="sortField = 'power_w'; sortDir = sortField === 'power_w' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">P, Вт${sortIcon('power_w')}</th>
-            <th>Нагреватель</th>
-            <th>Исполнение</th>
-            <th onclick="sortField = 'status'; sortDir = sortField === 'status' && sortDir === 'asc' ? 'desc' : 'asc'; renderHeaters()">Статус${sortIcon('status')}</th>
+            <th onclick="toggleSort('sticker_number')">Инв. №${sortIcon('sticker_number')}</th>
+            <th onclick="toggleSort('name')">Наименование${sortIcon('name')}</th>
+            <th onclick="toggleSort('serial')">Зав. №${sortIcon('serial')}</th>
+            <th onclick="toggleSort('voltage_v')">U, В${sortIcon('voltage_v')}</th>
+            <th onclick="toggleSort('power_w')">P, Вт${sortIcon('power_w')}</th>
+            <th onclick="toggleSort('heating_element')">Нагреватель${sortIcon('heating_element')}</th>
+            <th onclick="toggleSort('protection_type')">Исполнение${sortIcon('protection_type')}</th>
+            <th onclick="toggleSort('status')">Статус${sortIcon('status')}</th>
           </tr>
         </thead>
         <tbody>
