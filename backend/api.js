@@ -107,27 +107,45 @@ router.get('/objects', authMiddleware(), async (req, res) => {
     const { include_deleted } = req.query;
     const user = req.user;
     
-    // Admin sees all objects, others see only assigned objects
-    let sql = `
-      SELECT o.*, 
-             CASE WHEN uo.user_id IS NOT NULL THEN true ELSE false END as accessible
-      FROM objects o
-      LEFT JOIN user_objects uo ON o.id = uo.object_id AND uo.user_id = $1
-      WHERE o.deleted_at IS NULL
-    `;
+    // Admin sees all objects including deleted
+    if (user.role === 'admin') {
+      let sql = 'SELECT o.*, true as accessible FROM objects o WHERE 1=1';
+      if (include_deleted !== 'true') {
+        sql += ' AND o.deleted_at IS NULL';
+      }
+      sql += ' ORDER BY o.name';
+      const result = await query(sql);
+      return res.json(result.rows);
+    }
+    
+    // For non-admin users: check if they have explicit permissions
+    // If no permissions set, show all active objects (default behavior)
+    const permsResult = await query(
+      'SELECT object_id FROM user_objects WHERE user_id = $1',
+      [user.id]
+    );
+    
+    let sql;
     const params = [user.id];
     
-    // If not admin, filter to only accessible objects
-    if (user.role !== 'admin') {
+    if (permsResult.rows.length === 0) {
+      // No explicit permissions - show all active objects
+      sql = `
+        SELECT o.*, true as accessible
+        FROM objects o
+        WHERE o.deleted_at IS NULL
+        ORDER BY o.name
+      `;
+    } else {
+      // Show only assigned objects
       sql = `
         SELECT o.*, true as accessible
         FROM objects o
         INNER JOIN user_objects uo ON o.id = uo.object_id AND uo.user_id = $1
         WHERE o.deleted_at IS NULL
+        ORDER BY o.name
       `;
     }
-    
-    sql += ' ORDER BY o.name';
     
     const result = await query(sql, params);
     res.json(result.rows);
@@ -258,21 +276,31 @@ router.get('/premises', authMiddleware(), async (req, res) => {
       deletedFilter = 'TRUE';
     }
     
-    // For non-admin users, filter by accessible objects
+    // For non-admin users, check if they have explicit object permissions
+    // If no permissions set, show all active premises (default behavior)
     let objectFilter = '';
     const params = [];
     let paramIndex = 1;
     
     if (user.role !== 'admin') {
-      objectFilter = `
-        AND (
-          EXISTS (
-            SELECT 1 FROM user_objects uo 
-            WHERE uo.user_id = $${paramIndex++} AND uo.object_id = p.object_id
+      const permsResult = await query(
+        'SELECT object_id FROM user_objects WHERE user_id = $1',
+        [user.id]
+      );
+      
+      if (permsResult.rows.length > 0) {
+        // User has explicit permissions - filter by assigned objects
+        objectFilter = `
+          AND (
+            EXISTS (
+              SELECT 1 FROM user_objects uo 
+              WHERE uo.user_id = $${paramIndex++} AND uo.object_id = p.object_id
+            )
           )
-        )
-      `;
-      params.push(user.id);
+        `;
+        params.push(user.id);
+      }
+      // If no permissions, don't add filter - show all active premises
     }
     
     let sql = `
@@ -354,21 +382,31 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
       deletedFilter = 'TRUE';
     }
     
-    // For non-admin users, filter by accessible objects
+    // For non-admin users, check if they have explicit object permissions
+    // If no permissions set, show all active heaters (default behavior)
     let objectFilter = '';
     const params = [];
     let paramIndex = 1;
     
     if (user.role !== 'admin') {
-      objectFilter = `
-        AND (
-          EXISTS (
-            SELECT 1 FROM user_objects uo 
-            WHERE uo.user_id = $${paramIndex++} AND uo.object_id = o.id
+      const permsResult = await query(
+        'SELECT object_id FROM user_objects WHERE user_id = $1',
+        [user.id]
+      );
+      
+      if (permsResult.rows.length > 0) {
+        // User has explicit permissions - filter by assigned objects
+        objectFilter = `
+          AND (
+            EXISTS (
+              SELECT 1 FROM user_objects uo 
+              WHERE uo.user_id = $${paramIndex++} AND uo.object_id = o.id
+            )
           )
-        )
-      `;
-      params.push(user.id);
+        `;
+        params.push(user.id);
+      }
+      // If no permissions, don't add filter - show all active heaters
     }
     
     let sql = `
