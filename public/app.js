@@ -1421,40 +1421,80 @@ async function handleEditHeater(e, id) {
 
   console.log('Saving heater:', id, data);
 
-  try {
-    const response = await api(`/heaters/${id}`, {
+  const isOnline = navigator.onLine;
+
+  if (!isOnline) {
+    // Offline: update local cache immediately
+    const heaterIndex = heaters.findIndex(h => h.id === id);
+    if (heaterIndex !== -1) {
+      // Update local heater
+      const updatedHeater = { ...heaters[heaterIndex], ...data, updated_at: new Date().toISOString() };
+      
+      // Update premise_name if premise changed
+      const selectedPremise = premises.find(p => p.id === premiseId);
+      if (selectedPremise) {
+        updatedHeater.premise_name = selectedPremise.name;
+      }
+      
+      heaters[heaterIndex] = updatedHeater;
+      await db.heaters.put(updatedHeater);
+    }
+    
+    // Queue for sync
+    await db.syncQueue.add({
+      action: `/heaters/${id}`,
+      endpoint: `/heaters/${id}`,
       method: 'PUT',
-      body: JSON.stringify(data)
+      data: data,
+      timestamp: Date.now()
     });
-
-    console.log('Save response:', response);
-
-    // Close modal - find and remove the overlay
+    
+    // Close modal
     const modal = form.closest('.modal-overlay');
     if (modal) {
       modal.remove();
-      console.log('Modal removed via form.closest');
-    } else {
-      const fallbackModal = document.querySelector('.modal-overlay');
-      if (fallbackModal) {
-        fallbackModal.remove();
-        console.log('Modal removed via querySelector');
-      }
     }
-
-    // Refresh data
-    await loadData();
+    
+    // Refresh UI
     render();
+    showToast('Изменения сохранены (синхронизация при подключении)');
+  } else {
+    // Online: normal API call
+    try {
+      const response = await api(`/heaters/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
 
-    // Refresh heater detail card if open
-    if (selectedHeater && selectedHeater.id === id) {
-      await showHeaterDetail(id);
+      console.log('Save response:', response);
+
+      // Close modal - find and remove the overlay
+      const modal = form.closest('.modal-overlay');
+      if (modal) {
+        modal.remove();
+        console.log('Modal removed via form.closest');
+      } else {
+        const fallbackModal = document.querySelector('.modal-overlay');
+        if (fallbackModal) {
+          fallbackModal.remove();
+          console.log('Modal removed via querySelector');
+        }
+      }
+
+      // Refresh data
+      await loadData();
+      render();
+
+      // Refresh heater detail card if open
+      if (selectedHeater && selectedHeater.id === id) {
+        await showHeaterDetail(id);
+      }
+
+      showToast('Изменения сохранены');
+    } catch (err) {
+      console.error('Save error:', err);
+      showToast('Ошибка: ' + err.message);
     }
-
-    showToast('Изменения сохранены');
-  } catch (err) {
-    console.error('Save error:', err);
-    showToast('Ошибка: ' + err.message);
   }
 }
 
