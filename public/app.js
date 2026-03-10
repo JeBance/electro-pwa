@@ -1000,50 +1000,38 @@ function updatePremiseStatus() {
 
 async function handleAddHeater(e) {
   e.preventDefault();
-  e.stopPropagation();
 
-  console.log('handleAddHeater called');
-
-  const form = e.target.closest('form');
-  console.log('Form element:', form);
-
-  if (!form) {
-    console.error('Form not found');
+  const form = e.target;
+  if (!form || form.tagName !== 'FORM') {
+    showToast('Ошибка формы');
     return;
   }
 
   const objectId = parseInt(form.object_id?.value);
-
   if (!objectId) {
-    showToast('Ошибка: выберите объект');
+    showToast('Выберите объект');
     return;
   }
 
-  // Сохраняем последний выбранный объект и помещение
+  const name = form.name?.value;
+  if (!name || name.trim() === '') {
+    showToast('Введите название');
+    return;
+  }
+
   const premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
   localStorage.setItem('last_object_id', objectId);
-
-  // Если помещение не выбрано — сохраняем как "на склад"
-  if (!premiseId) {
-    localStorage.removeItem('last_premise_id');
-  } else {
+  if (premiseId) {
     localStorage.setItem('last_premise_id', premiseId);
   }
 
-  // Статус берём из формы (он уже обновлён автоматически если помещение не выбрано)
-  let status = form.status?.value;
-
-  // Если помещение не выбрано — принудительно ставим статус "warehouse"
+  let status = form.status?.value || 'active';
   if (!premiseId) {
     status = 'warehouse';
   }
-
-  // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id?.value) {
     premiseId = parseInt(form.move_premise_id.value);
   }
-
-  // Если статус "На складе", убираем помещение
   if (status === 'warehouse') {
     premiseId = null;
   }
@@ -1051,7 +1039,7 @@ async function handleAddHeater(e) {
   const heaterData = {
     object_id: objectId,
     premise_id: premiseId,
-    name: form.name?.value || '',
+    name: name.trim(),
     serial: form.serial?.value || null,
     sticker_number: form.sticker_number?.value || null,
     voltage_v: parseInt(form.voltage_v?.value) || 220,
@@ -1063,68 +1051,67 @@ async function handleAddHeater(e) {
     status: status
   };
 
-  console.log('Creating heater:', heaterData);
-
   const isOnline = navigator.onLine;
 
   if (!isOnline) {
-    // Offline: create optimistic record in cache with full data
-    const selectedObject = objects.find(o => o.id === objectId);
-    const selectedPremise = premises.find(p => p.id === premiseId);
-
-    const newHeater = {
-      id: 'local_' + Date.now(), // Temporary local ID
-      ...heaterData,
-      object_name: selectedObject?.name || 'Unknown',
-      premise_name: selectedPremise?.name || 'Без помещения',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-
-    // Add to local cache immediately
-    await db.heaters.add(newHeater);
-
-    // Queue for sync with local ID reference
-    await db.syncQueue.add({
-      action: '/heaters',
-      endpoint: '/heaters',
-      method: 'POST',
-      data: heaterData,
-      timestamp: Date.now(),
-      localId: newHeater.id
-    });
-
-    // Update global array
-    heaters.push(newHeater);
-
-    // Close modal and refresh UI
-    const modal = document.querySelector('.modal-overlay');
-    if (modal) {
-      modal.remove();
-    }
-    render();
-    showToast('Обогреватель добавлен (синхронизация при подключении)');
-  } else {
-    // Online: normal API call
     try {
-      const response = await api('/heaters', {
+      const selectedObject = objects.find(o => o.id === objectId);
+      const selectedPremise = premises.find(p => p.id === premiseId);
+
+      const newHeater = {
+        id: 'local_' + Date.now(),
+        object_id: objectId,
+        premise_id: premiseId,
+        name: heaterData.name,
+        serial: heaterData.serial,
+        sticker_number: heaterData.sticker_number,
+        voltage_v: heaterData.voltage_v,
+        power_w: heaterData.power_w,
+        heating_element: heaterData.heating_element,
+        protection_type: heaterData.protection_type,
+        manufacture_date: heaterData.manufacture_date,
+        decommission_date: heaterData.decommission_date,
+        status: heaterData.status,
+        object_name: selectedObject?.name || 'Unknown',
+        premise_name: selectedPremise?.name || 'Без помещения',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      await db.heaters.add(newHeater);
+      heaters.push(newHeater);
+
+      await db.syncQueue.add({
+        action: '/heaters',
+        endpoint: '/heaters',
+        method: 'POST',
+        data: heaterData,
+        timestamp: Date.now(),
+        localId: newHeater.id
+      });
+
+      const modal = document.querySelector('.modal-overlay');
+      if (modal) modal.remove();
+
+      render();
+      showToast('Добавлен (ожидает сети)');
+    } catch (err) {
+      showToast('Ошибка: ' + err.message);
+    }
+  } else {
+    try {
+      await api('/heaters', {
         method: 'POST',
         body: JSON.stringify(heaterData)
       });
 
-      // Close modal
       const modal = document.querySelector('.modal-overlay');
-      if (modal) {
-        modal.remove();
-      }
+      if (modal) modal.remove();
 
-      // Refresh data
       await loadData();
       render();
-
-      showToast('Обогреватель добавлен');
+      showToast('Добавлен');
     } catch (err) {
-      console.error('Create error:', err);
       showToast('Ошибка: ' + err.message);
     }
   }
