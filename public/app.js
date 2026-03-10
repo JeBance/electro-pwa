@@ -102,7 +102,12 @@ async function api(endpoint, options = {}) {
 
   const isOnline = navigator.onLine;
 
-  // For offline, queue the operation
+  // For offline GET requests, use cache immediately
+  if (!isOnline && options.method === 'GET') {
+    return await getCachedData(endpoint);
+  }
+
+  // For offline non-GET requests, queue the operation
   if (!isOnline && options.method !== 'GET') {
     await db.syncQueue.add({
       action: endpoint,
@@ -141,9 +146,9 @@ async function api(endpoint, options = {}) {
       showToast('Офлайн: операция сохранена в очередь');
       return { offline: true };
     }
-    
-    if (!isOnline && options.method === 'GET') {
-      // Return cached data for GET requests
+
+    // Fallback to cache for GET requests
+    if (options.method === 'GET') {
       return await getCachedData(endpoint);
     }
     throw err;
@@ -160,6 +165,9 @@ async function getCachedData(endpoint) {
   if (endpoint.startsWith('/objects')) {
     return await db.objects.toArray();
   }
+  if (endpoint.startsWith('/users')) {
+    return await db.users.toArray();
+  }
   return [];
 }
 
@@ -175,6 +183,10 @@ async function cacheData(endpoint, data) {
   if (endpoint.startsWith('/objects')) {
     await db.objects.clear();
     await db.objects.bulkAdd(data);
+  }
+  if (endpoint.startsWith('/users')) {
+    await db.users.clear();
+    await db.users.bulkAdd(data);
   }
 }
 
@@ -222,19 +234,21 @@ function checkAuth() {
 // Data loading
 async function loadData() {
   try {
-    const [heatersData, premisesData, objectsData] = await Promise.all([
+    const [heatersData, premisesData, objectsData, usersData] = await Promise.all([
       api('/heaters'),
       api('/premises'),
-      api('/objects')
+      api('/objects'),
+      api('/users')
     ]);
-    
+
     heaters = heatersData;
     premises = premisesData;
     objects = objectsData;
-    
+
     await cacheData('/heaters', heatersData);
     await cacheData('/premises', premisesData);
     await cacheData('/objects', objectsData);
+    await cacheData('/users', usersData);
   } catch (err) {
     console.error('Failed to load data:', err);
   }
