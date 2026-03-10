@@ -597,23 +597,10 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
     const params = [];
     let paramIndex = 1;
 
-    // Handle premise change
-    if (premise_id !== current.premise_id) {
-      updates.push(`premise_id = $${paramIndex++}`);
-      params.push(premise_id);
+    // Track if premise_id is being updated
+    let premiseIdUpdated = false;
 
-      if (premise_id) {
-        const premiseResult = await client.query('SELECT name FROM premises WHERE id = $1', [premise_id]);
-        const premiseName = premiseResult.rows[0]?.name || 'неизвестное';
-        await client.query(
-          `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
-           VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
-          [id, req.user.id, current.premise_id, premise_id, `Обогреватель перемещён в ${premiseName}`]
-        );
-      }
-    }
-
-    // Handle status change with appropriate comment
+    // Handle status change first (may affect premise_id)
     if (status !== undefined && status !== current.status) {
       updates.push(`status = $${paramIndex++}`);
       params.push(status);
@@ -621,8 +608,9 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
       let comment = '';
       if (status === 'warehouse' && current.status !== 'warehouse') {
         comment = 'Обогреватель перемещён на склад';
-        // Also clear premise_id when moving to warehouse
+        // Clear premise_id when moving to warehouse (if not already null)
         if (current.premise_id !== null) {
+          premiseIdUpdated = true;
           updates.push(`premise_id = $${paramIndex++}`);
           params.push(null);
         }
@@ -645,6 +633,22 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
          VALUES ($1, $2, 'status_change', $3, $4, $5)`,
         [id, req.user.id, current.status, status, comment]
       );
+    }
+
+    // Handle premise change (only if not already updated due to warehouse status)
+    if (!premiseIdUpdated && premise_id !== current.premise_id) {
+      updates.push(`premise_id = $${paramIndex++}`);
+      params.push(premise_id);
+
+      if (premise_id) {
+        const premiseResult = await client.query('SELECT name FROM premises WHERE id = $1', [premise_id]);
+        const premiseName = premiseResult.rows[0]?.name || 'неизвестное';
+        await client.query(
+          `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
+           VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
+          [id, req.user.id, current.premise_id, premise_id, `Обогреватель перемещён в ${premiseName}`]
+        );
+      }
     }
 
     // Handle other field updates
@@ -680,7 +684,7 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Update heater error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
