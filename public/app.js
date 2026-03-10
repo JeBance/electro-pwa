@@ -770,7 +770,7 @@ function showAddHeaterModal() {
       </div>
       <div class="input-group">
         <label>Помещение (место установки)</label>
-        <select name="premise_id" id="premise-select">
+        <select name="premise_id" id="premise-select" onchange="updatePremiseStatus()">
           <option value="">Без помещения (на склад)</option>
         </select>
       </div>
@@ -817,7 +817,7 @@ function showAddHeaterModal() {
       </div>
       <div class="input-group">
         <label>Статус</label>
-        <select name="status" onchange="toggleMoveField(this.value)">
+        <select name="status" id="status-select" onchange="toggleMoveField(this.value)">
           <option value="active">Активен</option>
           <option value="repair">В ремонте</option>
           <option value="warehouse">На складе</option>
@@ -952,6 +952,27 @@ function updatePremisesSelect(objectId, lastPremiseId = '') {
   }
   
   select.innerHTML = html;
+  
+  // Auto-update status based on premise selection
+  updatePremiseStatus();
+}
+
+// Auto-update status when premise selection changes
+function updatePremiseStatus() {
+  const premiseSelect = document.getElementById('premise-select');
+  const statusSelect = document.getElementById('status-select');
+  
+  if (premiseSelect && statusSelect) {
+    if (!premiseSelect.value) {
+      // No premise selected - set status to warehouse
+      statusSelect.value = 'warehouse';
+    } else {
+      // Premise selected - set status to active (if currently warehouse)
+      if (statusSelect.value === 'warehouse') {
+        statusSelect.value = 'active';
+      }
+    }
+  }
 }
 
 async function handleAddHeater(e) {
@@ -978,11 +999,21 @@ async function handleAddHeater(e) {
   // Сохраняем последний выбранный объект и помещение
   const premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
   localStorage.setItem('last_object_id', objectId);
-  if (premiseId) {
+  
+  // Если помещение не выбрано — сохраняем как "на склад"
+  if (!premiseId) {
+    localStorage.removeItem('last_premise_id');
+  } else {
     localStorage.setItem('last_premise_id', premiseId);
   }
 
-  const status = form.status?.value;
+  // Статус берём из формы (он уже обновлён автоматически если помещение не выбрано)
+  let status = form.status?.value;
+  
+  // Если помещение не выбрано — принудительно ставим статус "warehouse"
+  if (!premiseId) {
+    status = 'warehouse';
+  }
 
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id?.value) {
