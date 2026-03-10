@@ -375,7 +375,7 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5, $6)`,
-        [heater.id, req.user.id, id, null, currentStatus, 'warehouse', 'Помещение удалено - обогреватель перемещён на склад']
+        [heater.id, req.user.id, id, null, currentStatus, 'warehouse', 'Обогреватель перемещён на склад']
       );
     }
     
@@ -516,13 +516,6 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
       return res.status(400).json({ error: 'Premise ID and name required' });
     }
 
-    const statusNames = {
-      'active': 'активен',
-      'repair': 'в ремонте',
-      'warehouse': 'на складе',
-      'moved': 'перемещён'
-    };
-
     // Auto-generate sticker number if not provided
     let nextStickerNum;
     if (sticker_number) {
@@ -554,7 +547,7 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
     await client.query(
       `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment)
        VALUES ($1, $2, 'status_change', $3, $4)`,
-      [heater.id, req.user.id, heater.status, 'Обогреватель добавлен со статусом "' + (statusNames[heater.status] || heater.status) + '"']
+      [heater.id, req.user.id, heater.status, 'Создана карточка обогревателя']
     );
 
     await client.query('COMMIT');
@@ -593,10 +586,15 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
     if (premise_id !== undefined && premise_id !== current.premise_id) {
       updates.push(`premise_id = $${paramIndex++}`);
       params.push(premise_id);
+      
+      // Get premise name for comment
+      const premiseResult = await client.query('SELECT name FROM premises WHERE id = $1', [premise_id]);
+      const premiseName = premiseResult.rows[0]?.name || 'неизвестное';
+      
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, to_premise_id, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5)`,
-        [id, req.user.id, current.premise_id, premise_id, `Перемещён из помещения #${current.premise_id} в помещение #${premise_id}`]
+        [id, req.user.id, current.premise_id, premise_id, `Обогреватель перемещён в ${premiseName}`]
       );
     }
     
@@ -607,7 +605,28 @@ router.put('/heaters/:id', authMiddleware(['admin', 'electrician']), async (req,
       await client.query(
         `INSERT INTO heater_events (heater_id, user_id, event_type, from_premise_id, old_status, new_status, comment)
          VALUES ($1, $2, 'premise_change', $3, $4, $5, $6)`,
-        [id, req.user.id, current.premise_id, null, current.status, 'warehouse', 'Перемещён на склад']
+        [id, req.user.id, current.premise_id, null, current.status, 'warehouse', 'Обогреватель перемещён на склад']
+      );
+    }
+    
+    // If status changed to repair
+    if (status === 'repair' && current.status !== 'repair') {
+      await client.query(
+        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
+         VALUES ($1, $2, 'status_change', $3, $4, $5)`,
+        [id, req.user.id, current.status, status, 'Обогреватель перемещён в ремонт']
+      );
+    } else if (status !== undefined && status !== current.status && status !== 'warehouse' && status !== 'repair') {
+      // Other status changes
+      const statusNames = {
+        'active': 'активен',
+        'moved': 'перемещён'
+      };
+      const newStatusName = statusNames[status] || status;
+      await client.query(
+        `INSERT INTO heater_events (heater_id, user_id, event_type, old_status, new_status, comment)
+         VALUES ($1, $2, 'status_change', $3, $4, $5)`,
+        [id, req.user.id, current.status, status, `Статус изменён: ${newStatusName}`]
       );
     }
     if (serial !== undefined) { updates.push(`serial = $${paramIndex++}`); params.push(serial); }
