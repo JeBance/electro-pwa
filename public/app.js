@@ -874,22 +874,22 @@ async function handleAddHeater(e) {
   try {
     const response = await api('/heaters', { method: 'POST', body: JSON.stringify(data) });
     console.log('Create response:', response);
-    showToast('Обогреватель добавлен');
-  } catch (err) {
-    console.error('Create error:', err);
-    showToast('Ошибка: ' + err.message);
-  } finally {
-    // Close modal and refresh
-    console.log('Closing modal...');
+    
+    // Close modal immediately after successful save
     const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
       console.log('Modal removed');
-    } else {
-      console.log('Modal not found');
     }
+    
+    // Refresh data
     await loadData();
     render();
+    
+    showToast('Обогреватель добавлен');
+  } catch (err) {
+    console.error('Create error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 
@@ -1152,22 +1152,22 @@ async function handleEditHeater(e, id) {
     });
 
     console.log('Save response:', response);
-    showToast('Изменения сохранены');
-  } catch (err) {
-    console.error('Save error:', err);
-    showToast('Ошибка: ' + err.message);
-  } finally {
-    // Close modal and refresh
-    console.log('Closing modal...');
+    
+    // Close modal immediately after successful save
     const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
       console.log('Modal removed');
-    } else {
-      console.log('Modal not found');
     }
+    
+    // Refresh data
     await loadData();
     render();
+    
+    showToast('Изменения сохранены');
+  } catch (err) {
+    console.error('Save error:', err);
+    showToast('Ошибка: ' + err.message);
   }
 }
 
