@@ -741,6 +741,7 @@ function closeModal() {
 
 function showAddHeaterModal() {
   const lastObjectId = localStorage.getItem('last_object_id') || '';
+  const lastPremiseId = localStorage.getItem('last_premise_id') || '';
   
   // Load objects and premises if not available
   if (objects.length === 0 || premises.length === 0) {
@@ -839,9 +840,9 @@ function showAddHeaterModal() {
     </form>
   `);
   
-  // Initialize premise select with current object
+  // Initialize premise select with current object and last selected premise
   if (lastObjectId) {
-    updatePremisesSelect(lastObjectId);
+    updatePremisesSelect(lastObjectId, lastPremiseId);
   }
   
   // Загружаем следующий номер наклейки
@@ -928,7 +929,7 @@ function updateEditDecommissionDate(manufactureDate) {
   }
 }
 
-function updatePremisesSelect(objectId) {
+function updatePremisesSelect(objectId, lastPremiseId = '') {
   const select = document.getElementById('premise-select');
   if (!select) {
     console.error('premise-select element not found');
@@ -941,8 +942,16 @@ function updatePremisesSelect(objectId) {
   }
   
   const filtered = premises.filter(p => p.object_id == objectId);
-  select.innerHTML = '<option value="">Без помещения (на склад)</option>' +
-    filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  let html = '<option value="">Без помещения (на склад)</option>';
+  
+  if (filtered.length > 0) {
+    html += filtered.map(p => {
+      const isSelected = p.id == lastPremiseId ? 'selected' : '';
+      return `<option value="${p.id}" ${isSelected}>${p.name}</option>`;
+    }).join('');
+  }
+  
+  select.innerHTML = html;
 }
 
 async function handleAddHeater(e) {
@@ -966,11 +975,14 @@ async function handleAddHeater(e) {
     return;
   }
   
-  // Сохраняем последний выбранный объект
+  // Сохраняем последний выбранный объект и помещение
+  const premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
   localStorage.setItem('last_object_id', objectId);
+  if (premiseId) {
+    localStorage.setItem('last_premise_id', premiseId);
+  }
 
   const status = form.status?.value;
-  let premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
 
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id?.value) {
