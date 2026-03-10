@@ -824,23 +824,33 @@ function showHeaterDetail(id) {
   loadHeaterEvents(heater.id);
 }
 
+function getEventTypeName(eventType) {
+  const types = {
+    'status_change': 'Изменение статуса',
+    'premise_change': 'Перемещение',
+    'sticker_applied': 'Наклейка',
+    'photo_updated': 'Обновление фото'
+  };
+  return types[eventType] || eventType;
+}
+
 async function loadHeaterEvents(heaterId) {
   try {
     const events = await api(`/events?heater_id=${heaterId}&limit=20`);
     const container = $('#heater-events');
     if (!container) return;
-    
+
     if (events.length === 0) {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-text">Нет событий</div></div>';
       return;
     }
-    
+
     container.innerHTML = events.map(e => `
       <div class="timeline-item">
         <div class="timeline-dot"></div>
         <div class="timeline-content">
           <div class="timeline-date">${formatDate(e.created_at)}</div>
-          <div class="timeline-text">${e.comment || e.event_type} <br><small>${e.user_name || 'Система'}</small></div>
+          <div class="timeline-text"><strong>${getEventTypeName(e.event_type)}</strong><br>${e.comment || ''} <br><small>${e.user_name || 'Система'}</small></div>
         </div>
       </div>
     `).join('');
