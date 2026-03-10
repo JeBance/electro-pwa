@@ -15,6 +15,7 @@ let currentView = 'login';
 let heaters = [];
 let premises = [];
 let objects = [];
+let users = [];
 let viewMode = 'premises'; // 'premises' or 'list'
 let sortField = 'name';
 let sortDir = 'asc';
@@ -251,25 +252,37 @@ async function loadData() {
     if (cachedHeaters.length > 0) heaters = cachedHeaters;
     if (cachedPremises.length > 0) premises = cachedPremises;
     if (cachedObjects.length > 0) objects = cachedObjects;
+    if (cachedUsers.length > 0) users = cachedUsers;
     
     // Try to sync with server in background if online
     if (navigator.onLine) {
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      
       try {
-        const [heatersData, premisesData, objectsData, usersData] = await Promise.all([
-          api('/heaters'),
-          api('/premises'),
-          api('/objects'),
-          api('/users')
+        const [heatersRes, premisesRes, objectsRes, usersRes] = await Promise.all([
+          fetch(`${API_BASE}/api/heaters`, { headers }),
+          fetch(`${API_BASE}/api/premises`, { headers }),
+          fetch(`${API_BASE}/api/objects`, { headers }),
+          fetch(`${API_BASE}/api/users`, { headers })
         ]);
 
-        heaters = heatersData;
-        premises = premisesData;
-        objects = objectsData;
-
-        await cacheData('/heaters', heatersData);
-        await cacheData('/premises', premisesData);
-        await cacheData('/objects', objectsData);
-        await cacheData('/users', usersData);
+        if (heatersRes.ok) {
+          heaters = await heatersRes.json();
+          await cacheData('/heaters', heaters);
+        }
+        if (premisesRes.ok) {
+          premises = await premisesRes.json();
+          await cacheData('/premises', premises);
+        }
+        if (objectsRes.ok) {
+          objects = await objectsRes.json();
+          await cacheData('/objects', objects);
+        }
+        if (usersRes.ok) {
+          users = await usersRes.json();
+          await cacheData('/users', users);
+        }
         
         // Refresh UI after sync
         render();
@@ -1343,15 +1356,10 @@ let showDeleted = false;
 
 async function loadAdminData() {
   try {
-    const [usersData, objectsData, premisesData] = await Promise.all([
-      api('/users'),
-      api(`/objects?include_deleted=${showDeleted}`),
-      api(`/premises?include_deleted=${showDeleted}`)
-    ]);
-
-    // Обновляем глобальные массивы
-    objects = objectsData;
-    premises = premisesData;
+    // Use cached data first (works offline)
+    const usersData = users.length > 0 ? users : await db.users.toArray();
+    const objectsData = objects.length > 0 ? objects : await db.objects.toArray();
+    const premisesData = premises.length > 0 ? premises : await db.premises.toArray();
 
     // Render users
     const usersList = $('#users-list');
@@ -1474,18 +1482,16 @@ async function handleImport() {
 
 async function showUserObjectsModal(userId, userName) {
   try {
-    const [allObjects, userObjects] = await Promise.all([
-      api('/objects'),
-      api(`/users/${userId}/objects`)
-    ]);
-
-    console.log('All objects:', allObjects);
-    console.log('User objects:', userObjects);
+    // Use cached data (works offline)
+    const allObjects = objects.length > 0 ? objects : await db.objects.toArray();
+    const userObjects = await fetch(`/api/users/${userId}/objects`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    }).then(r => r.ok ? r.json() : []).catch(() => []);
 
     // Convert to numbers for consistent comparison
     const userObjectIds = new Set(userObjects.map(o => parseInt(o.object_id)));
-
-    console.log('User object IDs:', Array.from(userObjectIds));
 
     let objectsHtml;
     if (allObjects.length === 0) {
@@ -1494,7 +1500,6 @@ async function showUserObjectsModal(userId, userName) {
       objectsHtml = allObjects.map(o => {
         const objectId = parseInt(o.id);
         const isChecked = userObjectIds.has(objectId);
-        console.log(`Object ${o.id} (${o.name}): ${isChecked ? 'checked' : 'unchecked'}`);
         return `
           <label style="display:flex;align-items:center;gap:8px;padding:8px 0">
             <input type="checkbox" name="object_${o.id}" ${isChecked ? 'checked' : ''} value="${o.id}">
@@ -1526,23 +1531,25 @@ async function saveUserObjects(userId) {
     showToast('Ошибка: модальное окно не найдено');
     return;
   }
-  
+
   const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
   const objectIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-
-  console.log('Saving user objects:', { userId, objectIds });
 
   try {
     const response = await api(`/users/${userId}/objects`, {
       method: 'PUT',
-      body: JSON.stringify({ object_ids: objectIds })
+      body: JSON.stringify({ object_ids: objectIds }),
+      silent: true  // Silent for background sync
     });
-    
-    console.log('Save response:', response);
-    
-    closeModal();
-    showToast('Права доступа обновлены');
-    await loadAdminData();
+
+    if (response.offline) {
+      closeModal();
+      showToast('Права доступа сохранены (синхронизация при подключении)');
+    } else {
+      closeModal();
+      showToast('Права доступа обновлены');
+      await loadAdminData();
+    }
   } catch (err) {
     console.error('saveUserObjects error:', err);
     showToast('Ошибка: ' + err.message);
