@@ -66,22 +66,37 @@ const SyncManager = {
         if (result.idMapping) {
           for (const [localId, serverId] of Object.entries(result.idMapping)) {
             console.log('Updating local ID', localId, 'to server ID', serverId);
+            
             // Update heaters table
             const heater = await this.db.heaters.get(localId);
             if (heater) {
               await this.db.heaters.delete(localId);
               await this.db.heaters.put({ ...heater, id: serverId });
             }
+            
+            // Update stickers table if heater was updated
+            const stickers = await this.db.stickers.where('heater_id').equals(localId).toArray();
+            for (const sticker of stickers) {
+              await this.db.stickers.delete(sticker.id);
+              await this.db.stickers.put({ ...sticker, heater_id: serverId });
+            }
+            
+            // Update events table if heater was updated
+            const events = await this.db.events.where('heater_id').equals(localId).toArray();
+            for (const event of events) {
+              await this.db.events.delete(event.id);
+              await this.db.events.put({ ...event, heater_id: serverId });
+            }
           }
+        }
+        
+        // Refresh all data after successful sync
+        if (typeof loadData === 'function') {
+          loadData();
         }
         
         await this.db.syncQueue.clear();
         console.log('Sync queue cleared');
-        
-        // Refresh data after sync
-        if (typeof loadData === 'function') {
-          loadData();
-        }
       } else {
         const errorText = await response.text();
         console.error('Sync failed with status:', response.status, errorText);

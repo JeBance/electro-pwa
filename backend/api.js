@@ -1219,4 +1219,50 @@ router.post('/sync', authMiddleware(), async (req, res) => {
   }
 });
 
+// Get all stickers
+router.get('/stickers', authMiddleware(), async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM stickers ORDER BY id');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get stickers error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get all events
+router.get('/events', authMiddleware(), async (req, res) => {
+  try {
+    const { heater_id, limit } = req.query;
+    let sql = `
+      SELECT e.*, u.login as user_name, h.name as heater_name,
+             fp.name as from_premise_name, tp.name as to_premise_name
+      FROM heater_events e
+      LEFT JOIN users u ON e.user_id = u.id
+      LEFT JOIN heaters h ON e.heater_id = h.id
+      LEFT JOIN premises fp ON e.from_premise_id = fp.id
+      LEFT JOIN premises tp ON e.to_premise_id = tp.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+    
+    if (heater_id) {
+      sql += ` AND e.heater_id = $${paramIndex++}`;
+      params.push(heater_id);
+    }
+    sql += ' ORDER BY e.created_at DESC';
+    if (limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(parseInt(limit));
+    }
+    
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get events error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

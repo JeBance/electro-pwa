@@ -1,12 +1,15 @@
 // Database for offline storage
 const db = new Dexie('ElectroDB');
 db.version(1).stores({
-  heaters: 'id, premise_id, status, name, serial',
-  premises: 'id, object_id, name, type',
-  objects: 'id, name, code',
-  users: 'id, login, role',
-  events: 'id, heater_id, event_type, created_at',
-  syncQueue: '++id, action, endpoint, method, data, timestamp'
+  // Полное дублирование всех таблиц PostgreSQL
+  heaters: 'id, premise_id, status, name, serial, deleted_at',
+  premises: 'id, object_id, name, type, note, deleted_at',
+  objects: 'id, name, code, deleted_at',
+  users: 'id, login, role, deleted_at',
+  stickers: 'id, heater_id, number, check_date, electrician_id',
+  events: 'id, heater_id, user_id, event_type, from_premise_id, to_premise_id, old_status, new_status, comment, created_at',
+  userObjects: '++id, user_id, object_id',
+  syncQueue: '++id, action, endpoint, method, data, timestamp, localId'
 });
 
 // State
@@ -176,6 +179,15 @@ async function getCachedData(endpoint) {
   if (endpoint.startsWith('/users')) {
     return await db.users.toArray();
   }
+  if (endpoint.startsWith('/stickers')) {
+    return await db.stickers.toArray();
+  }
+  if (endpoint.startsWith('/events')) {
+    return await db.events.toArray();
+  }
+  if (endpoint.startsWith('/user-objects') || endpoint.startsWith('/my-objects')) {
+    return await db.userObjects.toArray();
+  }
   return [];
 }
 
@@ -195,6 +207,18 @@ async function cacheData(endpoint, data) {
   if (endpoint.startsWith('/users')) {
     await db.users.clear();
     await db.users.bulkAdd(data);
+  }
+  if (endpoint.startsWith('/stickers')) {
+    await db.stickers.clear();
+    await db.stickers.bulkAdd(data);
+  }
+  if (endpoint.startsWith('/events')) {
+    await db.events.clear();
+    await db.events.bulkAdd(data);
+  }
+  if (endpoint.startsWith('/user-objects') || endpoint.startsWith('/my-objects')) {
+    await db.userObjects.clear();
+    await db.userObjects.bulkAdd(data);
   }
 }
 
@@ -247,6 +271,8 @@ async function loadData() {
     const cachedPremises = await db.premises.toArray();
     const cachedObjects = await db.objects.toArray();
     const cachedUsers = await db.users.toArray();
+    const cachedStickers = await db.stickers.toArray();
+    const cachedEvents = await db.events.toArray();
     
     // Use cached data immediately
     if (cachedHeaters.length > 0) heaters = cachedHeaters;
@@ -260,11 +286,13 @@ async function loadData() {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       
       try {
-        const [heatersRes, premisesRes, objectsRes, usersRes] = await Promise.all([
+        const [heatersRes, premisesRes, objectsRes, usersRes, stickersRes, eventsRes] = await Promise.all([
           fetch(`${API_BASE}/api/heaters`, { headers }),
           fetch(`${API_BASE}/api/premises`, { headers }),
           fetch(`${API_BASE}/api/objects`, { headers }),
-          fetch(`${API_BASE}/api/users`, { headers })
+          fetch(`${API_BASE}/api/users`, { headers }),
+          fetch(`${API_BASE}/api/stickers`, { headers }),
+          fetch(`${API_BASE}/api/events?limit=1000`, { headers })
         ]);
 
         if (heatersRes.ok) {
@@ -282,6 +310,14 @@ async function loadData() {
         if (usersRes.ok) {
           users = await usersRes.json();
           await cacheData('/users', users);
+        }
+        if (stickersRes.ok) {
+          const stickers = await stickersRes.json();
+          await cacheData('/stickers', stickers);
+        }
+        if (eventsRes.ok) {
+          const events = await eventsRes.json();
+          await cacheData('/events', events);
         }
         
         // Refresh UI after sync
