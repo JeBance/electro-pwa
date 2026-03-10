@@ -590,6 +590,10 @@ function showAddHeaterModal() {
         <input type="text" name="serial" placeholder="Серийный номер">
       </div>
       <div class="input-group">
+        <label>Инв. № (наклейка)</label>
+        <input type="text" name="sticker_number" placeholder="Авто" id="sticker-number-input">
+      </div>
+      <div class="input-group">
         <label>Напряжение, В</label>
         <input type="number" name="voltage_v" value="220">
       </div>
@@ -636,6 +640,27 @@ function showAddHeaterModal() {
       <button type="submit" class="btn btn-primary">Сохранить</button>
     </form>
   `);
+  
+  // Загружаем следующий номер наклейки
+  loadNextStickerNumber();
+}
+
+async function loadNextStickerNumber() {
+  try {
+    const stickers = await api('/stickers');
+    const maxNum = stickers.reduce((max, s) => {
+      const num = parseInt(s.number) || 0;
+      return num > max ? num : max;
+    }, 0);
+    const nextNum = String(maxNum + 1).padStart(3, '0');
+    const input = $('#sticker-number-input');
+    if (input) {
+      input.value = nextNum;
+      input.placeholder = nextNum;
+    }
+  } catch (err) {
+    console.error('Failed to load sticker number:', err);
+  }
 }
 
 function updateDecommissionDate(manufactureDate) {
@@ -677,6 +702,7 @@ async function handleAddHeater(e) {
     premise_id: parseInt(form.premise_id.value),
     name: form.name.value,
     serial: form.serial.value || null,
+    sticker_number: form.sticker_number.value || null,
     voltage_v: parseInt(form.voltage_v.value) || 220,
     power_w: form.power_w.value ? parseInt(form.power_w.value) : null,
     heating_element: form.heating_element.value || 'ТЭН',

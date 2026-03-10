@@ -263,28 +263,33 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
   try {
     await client.query('BEGIN');
 
-    const { premise_id, serial, name, power_kw, power_w, elements, heating_element, 
-            manufacture_date, decommission_date, inventory_number, voltage_v, 
-            protection_type, installation_location, status } = req.body;
+    const { premise_id, serial, name, power_kw, power_w, elements, heating_element,
+            manufacture_date, decommission_date, inventory_number, voltage_v,
+            protection_type, installation_location, status, sticker_number } = req.body;
     if (!premise_id || !name) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Premise ID and name required' });
     }
 
-    // Auto-generate sticker number
-    const stickerResult = await client.query(
-      'SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) + 1 as next_num FROM stickers'
-    );
-    const nextStickerNum = String(stickerResult.rows[0].next_num).padStart(3, '0');
+    // Auto-generate sticker number if not provided
+    let nextStickerNum;
+    if (sticker_number) {
+      nextStickerNum = sticker_number;
+    } else {
+      const stickerResult = await client.query(
+        'SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) + 1 as next_num FROM stickers'
+      );
+      nextStickerNum = String(stickerResult.rows[0].next_num).padStart(3, '0');
+    }
 
     const heaterResult = await client.query(
       `INSERT INTO heaters (premise_id, serial, name, power_kw, power_w, elements, heating_element,
-            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
+            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type,
             installation_location, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [premise_id, serial || null, name, power_kw || null, power_w || null, elements || null, 
-       heating_element || null, manufacture_date || null, decommission_date || null, 
-       inventory_number || null, voltage_v || 220, protection_type || null, 
+      [premise_id, serial || null, name, power_kw || null, power_w || null, elements || null,
+       heating_element || null, manufacture_date || null, decommission_date || null,
+       inventory_number || null, voltage_v || 220, protection_type || null,
        installation_location || null, status || 'active']
     );
     const heater = heaterResult.rows[0];
@@ -293,13 +298,13 @@ router.post('/heaters', authMiddleware(['admin', 'electrician']), async (req, re
       'INSERT INTO stickers (heater_id, number, electrician_id) VALUES ($1, $2, $3)',
       [heater.id, nextStickerNum, req.user.id]
     );
-    
+
     await client.query(
-      `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment) 
+      `INSERT INTO heater_events (heater_id, user_id, event_type, new_status, comment)
        VALUES ($1, $2, 'status_change', $3, $4)`,
       [heater.id, req.user.id, heater.status, 'Initial status']
     );
-    
+
     await client.query('COMMIT');
     res.status(201).json(heater);
   } catch (err) {
