@@ -226,9 +226,7 @@ async function login(loginVal, password) {
 
     if (window.AppLogs) AppLogs.success(`Пользователь ${data.user.login} вошёл в систему`);
 
-    // Загружаем пользователей с сервера (только пользователи!)
-    await loadUsersFromServer();
-    // Загружаем локальные данные
+    // Загружаем только локальные данные из IndexedDB
     await loadLocalData();
 
     showToast('Вход выполнен');
@@ -238,32 +236,6 @@ async function login(loginVal, password) {
     if (window.AppLogs) AppLogs.error(`Ошибка входа: ${err.message}`);
     showToast(err.message || 'Ошибка входа');
     throw err;
-  }
-}
-
-// Загрузка только пользователей с сервера
-async function loadUsersFromServer() {
-  if (!navigator.onLine) return;
-
-  try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-
-    const res = await fetch('/api/users', { headers });
-    if (res.ok) {
-      const users = await res.json();
-      window.users = users;
-      await Store.db.users.clear();
-      await Store.db.users.bulkPut(users.map(u => ({
-        ...u,
-        uuid: u.uuid || Store.generateUUIDSync(u.created_at ? new Date(u.created_at).getTime() : Date.now())
-      })));
-    }
-  } catch (err) {
-    console.error('[loadUsersFromServer] error:', err);
   }
 }
 
@@ -1752,64 +1724,7 @@ let showDeleted = false;
 
 async function loadAdminData() {
   try {
-    // Загружаем свежие данные с сервера если онлайн
-    if (navigator.onLine) {
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      };
-
-      try {
-        // Загружаем пользователей
-        const usersRes = await fetch('/api/users', { headers });
-        if (usersRes.ok) {
-          const usersData = await usersRes.json();
-          window.users = usersData;
-          await Store.db.users.bulkPut(usersData);
-        }
-      } catch (err) {
-        console.error('[loadAdminData] Failed to load users:', err);
-        // Fallback на IndexedDB
-        if (window.users.length === 0) {
-          window.users = await Store.db.users.toArray();
-        }
-      }
-
-      try {
-        // Загружаем объекты
-        const objectsRes = await fetch('/api/objects', { headers });
-        if (objectsRes.ok) {
-          const objectsData = await objectsRes.json();
-          window.objects = objectsData;
-          await Store.db.objects.bulkPut(objectsData);
-        }
-      } catch (err) {
-        console.error('[loadAdminData] Failed to load objects:', err);
-        // Fallback на IndexedDB
-        if (window.objects.length === 0) {
-          window.objects = await Store.db.objects.toArray();
-        }
-      }
-
-      try {
-        // Загружаем помещения
-        const premisesRes = await fetch('/api/premises', { headers });
-        if (premisesRes.ok) {
-          const premisesData = await premisesRes.json();
-          window.premises = premisesData;
-          await Store.db.premises.bulkPut(premisesData);
-        }
-      } catch (err) {
-        console.error('[loadAdminData] Failed to load premises:', err);
-        // Fallback на IndexedDB
-        if (window.premises.length === 0) {
-          window.premises = await Store.db.premises.toArray();
-        }
-      }
-    }
-
-    // Используем данные из window
+    // Используем только локальные данные из IndexedDB
     const usersData = window.users || [];
     const objectsData = window.objects || [];
     const premisesData = window.premises || [];
