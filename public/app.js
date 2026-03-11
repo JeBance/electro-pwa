@@ -1321,28 +1321,19 @@ async function loadHeaterEvents(heaterId) {
 async function deleteHeater(id) {
   if (!confirm('Удалить обогреватель? Данные можно будет восстановить.')) return;
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`/api/heaters/${id}`, {
-      method: 'DELETE',
-      headers
-    });
-    
-    if (!response.ok && response.status !== 204) {
-      const data = await response.json();
-      throw new Error(data.error || 'Ошибка удаления');
-    }
-    
-    showToast('Обогреватель удалён');
-    await loadLocalData();
+    // Soft delete в IndexedDB
+    await Store.update('heaters', id, { deleted_at: new Date().toISOString() });
+
+    // Обновляем window.heaters
+    window.heaters = await Store.refreshHeaters();
+
     render();
+    showToast('Обогреватель удалён');
   } catch (err) {
     console.error('Delete heater error:', err);
-    showToast(err.message || 'Ошибка при удалении');
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
@@ -2199,53 +2190,38 @@ async function handleEditObject(e, objectId) {
 async function deleteObject(id) {
   if (!confirm('Удалить объект? Данные можно будет восстановить.')) return;
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`/api/objects/${id}`, {
-      method: 'DELETE',
-      headers
-    });
-    
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || `Ошибка ${response.status}`);
-    }
-    
+    // Soft delete в IndexedDB
+    await Store.update('objects', id, { deleted_at: new Date().toISOString() });
+
+    // Обновляем window.objects
+    window.objects = await Store.refreshObjects();
+
+    closeModal();
+    render();
     showToast('Объект удалён');
-    await loadAdminData();
   } catch (err) {
     console.error('Delete object error:', err);
-    showToast(err.message || 'Ошибка при удалении');
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
 async function restoreObject(id) {
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`/api/objects/${id}/restore`, {
-      method: 'POST',
-      headers
-    });
-    
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Ошибка восстановления');
-    }
-    
+    // Восстанавливаем в IndexedDB
+    await Store.update('objects', id, { deleted_at: null });
+
+    // Обновляем window.objects
+    window.objects = await Store.refreshObjects();
+
+    render();
     showToast('Объект восстановлен');
-    await loadAdminData();
   } catch (err) {
     console.error('Restore object error:', err);
-    showToast(err.message);
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
@@ -2403,53 +2379,38 @@ async function handleEditPremise(e, premiseId) {
 async function deletePremise(id) {
   if (!confirm('Удалить помещение? Данные можно будет восстановить.')) return;
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`/api/premises/${id}`, {
-      method: 'DELETE',
-      headers
-    });
-    
-    if (!response.ok && response.status !== 204) {
-      const data = await response.json();
-      throw new Error(data.error || 'Ошибка удаления');
-    }
-    
+    // Soft delete в IndexedDB
+    await Store.update('premises', id, { deleted_at: new Date().toISOString() });
+
+    // Обновляем window.premises
+    window.premises = await Store.refreshPremises();
+
+    closeModal();
+    render();
     showToast('Помещение удалено');
-    await loadAdminData();
   } catch (err) {
     console.error('Delete premise error:', err);
-    showToast(err.message || 'Ошибка при удалении');
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
 async function restorePremise(id) {
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`/api/premises/${id}/restore`, {
-      method: 'POST',
-      headers
-    });
-    
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Ошибка восстановления');
-    }
-    
+    // Восстанавливаем в IndexedDB
+    await Store.update('premises', id, { deleted_at: null });
+
+    // Обновляем window.premises
+    window.premises = await Store.refreshPremises();
+
+    render();
     showToast('Помещение восстановлено');
-    await loadAdminData();
   } catch (err) {
     console.error('Restore premise error:', err);
-    showToast(err.message);
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
