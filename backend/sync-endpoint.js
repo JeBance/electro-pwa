@@ -8,15 +8,15 @@ const crypto = require('crypto');
 // Такая же функция как на фронтенде для совместимости
 function generateUUIDSync(timestamp = Date.now()) {
   // Простая детерминированная генерация на основе timestamp
-  // Формат: timestamp (13 цифр) + случайные биты для уникальности
-  const timeHex = timestamp.toString(16).padStart(16, '0');
+  // Формат UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 символов)
+  const timeHex = timestamp.toString(16).padStart(8, '0');
   const random1 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
-  const random2 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
-  const random3 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+  const random2 = Math.floor(Math.random() * 0x0FFF).toString(16).padStart(4, '0'); // 4xxx
+  const random3 = Math.floor(Math.random() * 0x3FFF + 0x8000).toString(16).padStart(4, '0'); // 8xxx, 9xxx, axxx, bxxx
   const random4 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
   
-  // Формируем UUID с версией 4
-  const uuid = `${timeHex.slice(0, 8)}-${timeHex.slice(8, 12)}-4${timeHex.slice(12, 15)}-${random1}-${random2}${random3}${random4}`;
+  // Формируем UUID: time-random-4random-3random-random
+  const uuid = `${timeHex}-${random1}-4${random2.slice(1)}-${random3}-${random4}`;
   
   return uuid;
 }
