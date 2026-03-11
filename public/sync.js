@@ -111,16 +111,19 @@ const SyncManager = {
     return await this.sync();
   },
 
-  // Авто-синхронизация при появлении интернета
+  // Авто-синхронизация при появлении интернета и каждые 60 секунд
   init() {
+    // Синхронизация при появлении интернета
     window.addEventListener('online', () => {
-      console.log('[Sync] Онлайн, запускаем синхронизацию');
+      console.log('[Sync] Онлайн — запускаем синхронизацию');
+      if (window.AppLogs) AppLogs.info('🟢 Онлайн — синхронизация...');
       this.sync();
     });
 
     // Периодическая синхронизация каждые 60 секунд
     setInterval(() => {
-      if (navigator.onLine && !this.isSyncing) {
+      if (navigator.onLine && !this.isSyncing && localStorage.getItem('token')) {
+        console.log('[Sync] Периодическая синхронизация');
         this.sync();
       }
     }, 60000);

@@ -25,17 +25,16 @@ async function initApp() {
   if (checkAuth()) {
     if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser?.login || 'anonymous'} авторизован`);
 
-    // Загружаем из IndexedDB
+    // Загружаем данные с сервера в IndexedDB
     await loadLocalData();
     if (window.AppLogs) AppLogs.info('Данные загружены из IndexedDB');
 
-    // Автономный режим, но синхронизация работает в фоне при наличии интернета
+    // Если онлайн — синхронизируем с сервером
     if (navigator.onLine) {
-      if (window.AppLogs) AppLogs.info('Онлайн — синхронизация в фоне...');
-      // Синхронизируем очередь через 2 секунды после загрузки
-      setTimeout(() => SyncManager.sync(), 2000);
+      if (window.AppLogs) AppLogs.info('Онлайн — загрузка данных с сервера...');
+      await SyncManager.sync();
     } else {
-      if (window.AppLogs) AppLogs.warn('Офлайн режим — данные будут синхронизированы при подключении');
+      if (window.AppLogs) AppLogs.warn('Офлайн — работаем с локальными данными');
     }
   } else {
     if (window.AppLogs) AppLogs.info('Пользователь не авторизован');
@@ -233,8 +232,13 @@ async function login(loginVal, password) {
 
     if (window.AppLogs) AppLogs.success(`Пользователь ${data.user.login} вошёл в систему`);
 
-    // Загружаем только локальные данные из IndexedDB
+    // Загружаем данные с сервера в IndexedDB
     await loadLocalData();
+    
+    // Синхронизируем с сервером (отправляем очередь и получаем обновления)
+    if (navigator.onLine) {
+      await SyncManager.sync();
+    }
 
     showToast('Вход выполнен');
     setView('heaters');
@@ -1722,7 +1726,7 @@ let showDeleted = false;
 
 async function loadAdminData() {
   try {
-    // Используем только локальные данные из IndexedDB
+    // Загружаем данные из IndexedDB
     const usersData = window.users || [];
     const objectsData = window.objects || [];
     const premisesData = window.premises || [];
