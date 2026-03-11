@@ -49,17 +49,29 @@ const Store = {
   init() {
     this.db = new Dexie('ElectroDB');
     this.db.version(1).stores({
-      // Основные таблицы с полным набором полей
-      heaters: 'uuid, id, premise_uuid, object_uuid, status, name, serial, sticker_number, power_kw, power_w, voltage_v, heating_element, protection_type, manufacture_date, decommission_date, inventory_number, installation_location, photo_url, object_name, premise_name, last_modified, deleted_at, updated_at, _sync_status, _modified, _sync_error',
-      premises: 'uuid, id, object_uuid, name, number, type, note, object_name, deleted_at, _sync_status, _modified',
-      objects: 'uuid, id, name, code, deleted_at, _sync_status, _modified',
-      users: 'uuid, id, login, role, password_hash, deleted_at, _sync_status, _modified',
+      // ===== Основные таблицы (полное соответствие PostgreSQL) =====
+      
+      // users: id, login, password_hash, role, created_at
+      users: 'uuid, id, login, password_hash, role, created_at, deleted_at, _sync_status, _modified',
+      
+      // objects: id, name, code, created_at
+      objects: 'uuid, id, name, code, created_at, deleted_at, _sync_status, _modified',
+      
+      // premises: id, object_id, name, number, type, created_at
+      premises: 'uuid, id, object_uuid, object_id, name, number, type, note, created_at, deleted_at, _sync_status, _modified',
+      
+      // heaters: id, premise_id, serial, name, power_kw, elements, manufacture_date, photo_url, status, created_at, updated_at
+      heaters: 'uuid, id, premise_uuid, premise_id, object_uuid, object_id, serial, name, power_kw, power_w, voltage_v, heating_element, protection_type, manufacture_date, decommission_date, inventory_number, installation_location, photo_url, status, created_at, updated_at, deleted_at, _sync_status, _modified',
+      
+      // stickers: id, heater_id, number, check_date, electrician_id, created_at
       stickers: 'uuid, id, heater_uuid, heater_id, number, check_date, electrician_uuid, electrician_id, created_at, _sync_status, _modified',
-      events: 'uuid, id, heater_uuid, heater_id, user_uuid, user_id, event_type, from_premise_uuid, to_premise_uuid, from_premise_id, to_premise_id, old_status, new_status, comment, user_name, heater_name, from_premise_name, to_premise_name, created_at, _sync_status, _modified',
-      // Служебные таблицы
-      userObjects: '++id, user_uuid, object_uuid',
+      
+      // heater_events: id, heater_id, user_id, event_type, from_premise_id, to_premise_id, old_status, new_status, comment, created_at
+      events: 'uuid, id, heater_uuid, heater_id, user_uuid, user_id, event_type, from_premise_uuid, from_premise_id, to_premise_uuid, to_premise_id, old_status, new_status, comment, created_at, _sync_status, _modified',
+      
+      // ===== Служебные таблицы =====
+      userObjects: '++id, user_uuid, user_id, object_uuid, object_id',
       syncState: 'key',
-      // Очередь синхронизации (для обратной совместимости)
       syncQueue: '++id, action, endpoint, method, data, timestamp, localId'
     });
     return this.db;
@@ -368,12 +380,22 @@ const Store = {
         }
       }
 
+      // Если объект не найден через помещение, пробуем напрямую
+      if (!obj && h.object_uuid) {
+        obj = objectUuidMap.get(h.object_uuid);
+      }
+      if (!obj && h.object_id) {
+        obj = objectIdMap.get(h.object_id);
+      }
+
       return {
         ...h,
         premise_id: premise?.id || h.premise_id,
         premise_name: premise?.name || h.premise_name,
-        object_id: obj?.id,
-        object_name: obj?.name || h.object_name
+        premise_uuid: premise?.uuid || h.premise_uuid,
+        object_id: obj?.id || h.object_id,
+        object_name: obj?.name || h.object_name,
+        object_uuid: obj?.uuid || h.object_uuid
       };
     });
 
@@ -403,7 +425,8 @@ const Store = {
       return {
         ...p,
         object_id: obj?.id || p.object_id,
-        object_name: obj?.name || p.object_name
+        object_name: obj?.name || p.object_name,
+        object_uuid: obj?.uuid || p.object_uuid
       };
     });
 
