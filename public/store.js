@@ -140,7 +140,7 @@ const Store = {
   },
 
   // ===== ЗАПИСЬ (в IndexedDB) =====
-  
+
   async create(table, data) {
     if (!this.db) throw new Error('Store not initialized');
 
@@ -148,16 +148,6 @@ const Store = {
     const uuid = record.uuid;
 
     await this.db[table].add(record);
-
-    // Добавляем в очередь синхронизации
-    await this.db.syncQueue.add({
-      action: `/${table}`,
-      endpoint: `/${table}`,
-      method: 'POST',
-      data: record,
-      timestamp: Date.now(),
-      localId: uuid
-    });
 
     console.log(`[Store] Created ${table}:${uuid}`, record);
     return { uuid, ...record };
@@ -173,16 +163,6 @@ const Store = {
 
     const record = await this.prepareRecord({ ...existing, ...data }, true);
     await this.db[table].update(uuid, record);
-
-    // Добавляем в очередь синхронизации
-    await this.db.syncQueue.add({
-      action: `/${table}/${uuid}`,
-      endpoint: `/${table}/${uuid}`,
-      method: 'PUT',
-      data: record,
-      timestamp: Date.now(),
-      localId: uuid
-    });
 
     console.log(`[Store] Updated ${table}:${uuid}`, record);
     return { uuid, ...record };
@@ -207,16 +187,6 @@ const Store = {
       // Hard delete
       await this.db[table].delete(uuid);
     }
-
-    // Добавляем в очередь синхронизации
-    await this.db.syncQueue.add({
-      action: `/${table}/${uuid}`,
-      endpoint: `/${table}/${uuid}`,
-      method: 'DELETE',
-      data: null,
-      timestamp: Date.now(),
-      localId: uuid
-    });
 
     console.log(`[Store] Deleted ${table}:${uuid}`);
     return uuid;
