@@ -158,12 +158,13 @@ async function createRecord(client, config, record, userId) {
         continue;
       }
 
-      // Если значение всё ещё null, пробуем использовать прямой ID (для оффлайн-записей)
+      // Если значение null и есть resolveRefs, пробуем использовать прямой ID (для оффлайн-записей)
       if (value === null && config.resolveRefs) {
         // Проверяем есть ли соответствующее поле без _uuid
-        const directField = field.replace('_uuid', '');
-        if (record[directField]) {
+        const directField = field.replace('_uuid', '_id');
+        if (record[directField] !== undefined && record[directField] !== null) {
           value = record[directField];
+          console.log(`[Sync] Using direct ID ${directField}=${value} for ${field}`);
         }
       }
 
@@ -244,29 +245,79 @@ async function updateRecord(client, config, serverId, record, userId) {
 // Получение обновлений с сервера
 async function getServerUpdates(client, lastSyncTime) {
   const result = {};
-  const tables = ['objects', 'premises', 'heaters', 'users', 'stickers', 'heater_events'];
-  
-  for (const table of tables) {
-    let sql;
-    const params = [];
-    
-    if (lastSyncTime) {
-      sql = `SELECT * FROM ${table} WHERE created_at > $1 OR synced_at > $1`;
-      params.push(lastSyncTime);
-    } else {
-      // Первая синхронизация - возвращаем последние 1000 записей
-      sql = `SELECT * FROM ${table} ORDER BY created_at DESC LIMIT 1000`;
-    }
-    
-    try {
-      const res = await client.query(sql, params);
-      result[table] = res.rows;
-    } catch (err) {
-      console.error(`[Sync] Error fetching ${table}:`, err.message);
-      result[table] = [];
-    }
+  const params = [];
+
+  if (lastSyncTime) {
+    params.push(lastSyncTime);
   }
-  
+
+  // Возвращаем обогреватели с sticker_number через JOIN
+  try {
+    const sql = `
+      SELECT h.*, s.number as sticker_number
+      FROM heaters h
+      LEFT JOIN stickers s ON h.id = s.heater_id
+      WHERE ${lastSyncTime ? '(h.created_at > $1 OR h.synced_at > $1)' : 'TRUE'}
+      ORDER BY h.created_at DESC
+      ${lastSyncTime ? '' : 'LIMIT 1000'}
+    `;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.heaters = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching heaters:`, err.message);
+    result.heaters = [];
+  }
+
+  // Возвращаем помещения
+  try {
+    const sql = `SELECT * FROM premises WHERE ${lastSyncTime ? '(created_at > $1 OR synced_at > $1)' : 'TRUE'} ORDER BY created_at DESC ${lastSyncTime ? '' : 'LIMIT 1000'}`;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.premises = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching premises:`, err.message);
+    result.premises = [];
+  }
+
+  // Возвращаем объекты
+  try {
+    const sql = `SELECT * FROM objects WHERE ${lastSyncTime ? '(created_at > $1 OR synced_at > $1)' : 'TRUE'} ORDER BY created_at DESC ${lastSyncTime ? '' : 'LIMIT 1000'}`;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.objects = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching objects:`, err.message);
+    result.objects = [];
+  }
+
+  // Возвращаем пользователей
+  try {
+    const sql = `SELECT * FROM users WHERE ${lastSyncTime ? '(created_at > $1 OR synced_at > $1)' : 'TRUE'} ORDER BY created_at DESC ${lastSyncTime ? '' : 'LIMIT 1000'}`;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.users = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching users:`, err.message);
+    result.users = [];
+  }
+
+  // Возвращаем stickers
+  try {
+    const sql = `SELECT * FROM stickers WHERE ${lastSyncTime ? '(created_at > $1 OR synced_at > $1)' : 'TRUE'} ORDER BY created_at DESC ${lastSyncTime ? '' : 'LIMIT 1000'}`;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.stickers = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching stickers:`, err.message);
+    result.stickers = [];
+  }
+
+  // Возвращаем события
+  try {
+    const sql = `SELECT * FROM heater_events WHERE ${lastSyncTime ? '(created_at > $1 OR synced_at > $1)' : 'TRUE'} ORDER BY created_at DESC ${lastSyncTime ? '' : 'LIMIT 1000'}`;
+    const res = await client.query(sql, lastSyncTime ? params : []);
+    result.heater_events = res.rows;
+  } catch (err) {
+    console.error(`[Sync] Error fetching heater_events:`, err.message);
+    result.heater_events = [];
+  }
+
   return result;
 }
 

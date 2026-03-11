@@ -1120,7 +1120,7 @@ async function handleAddHeater(e) {
   const heaterData = {
     object_uuid: selectedObject.uuid,
     premise_uuid: selectedPremise?.uuid || null,
-    premise_id: selectedPremise?.id || null, // Сохраняем локальный ID для оффлайн-помещений
+    premise_id: selectedPremise?.id ? parseInt(selectedPremise.id) : null, // Сохраняем локальный ID для оффлайн-помещений
     name: name.trim(),
     serial: form.serial?.value || null,
     sticker_number: form.sticker_number?.value || null,
