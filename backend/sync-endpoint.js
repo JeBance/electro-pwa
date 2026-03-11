@@ -147,49 +147,38 @@ async function createRecord(client, config, record, userId) {
   const values = [];
   let paramIndex = 1;
 
-  for (const field of config.fields) {
-    if (field === 'uuid' || field in record) {
-      let value = record[field];
+  // Поля которые есть в PostgreSQL (без служебных полей фронтенда)
+  const dbFields = {
+    heaters: ['uuid', 'premise_id', 'serial', 'name', 'power_kw', 'power_w', 'voltage_v', 'heating_element', 'protection_type', 'manufacture_date', 'decommission_date', 'inventory_number', 'installation_location', 'photo_url', 'status'],
+    premises: ['uuid', 'object_id', 'name', 'number', 'type', 'note'],
+    objects: ['uuid', 'name', 'code'],
+    users: ['uuid', 'login', 'password_hash', 'role'],
+    stickers: ['uuid', 'heater_id', 'number', 'check_date', 'electrician_id'],
+    heater_events: ['uuid', 'heater_id', 'user_id', 'event_type', 'from_premise_id', 'to_premise_id', 'old_status', 'new_status', 'comment']
+  };
 
-      // Пропускаем служебные поля
-      if (field.startsWith('_')) {
-        continue;
-      }
+  const validFields = dbFields[config.tableName] || config.fields.filter(f => !f.startsWith('_') && !f.endsWith('_uuid'));
 
-      // Разрешаем ссылки на другие таблицы по UUID
-      if (config.resolveRefs[field] && field.endsWith('_uuid')) {
-        const refConfig = config.resolveRefs[field];
-        const refUuid = record[field];
-        if (refUuid) {
-          // Ищем ID по UUID
-          const refResult = await client.query(
-            `SELECT ${refConfig.field} FROM ${refConfig.table} WHERE uuid = $1`,
-            [refUuid]
-          );
-          value = refResult.rows.length > 0 ? refResult.rows[0][refConfig.field] : null;
-        } else {
-          value = null;
-        }
-      }
-      
-      // Пропускаем поля _uuid которые уже обработали
-      if (field.endsWith('_uuid')) {
-        continue;
-      }
+  for (const field of validFields) {
+    let value = record[field];
 
-      // Если значение null и есть resolveRefs, пробуем использовать прямой ID (для оффлайн-записей)
-      if (value === null && config.resolveRefs) {
-        // Проверяем есть ли соответствующее поле без _uuid
-        const directField = field.replace('_uuid', '_id');
-        if (record[directField] !== undefined && record[directField] !== null) {
-          value = record[directField];
-          console.log(`[Sync] Using direct ID ${directField}=${value} for ${field}`);
-        }
+    // Разрешаем ссылки на другие таблицы по UUID
+    const uuidField = field.replace('_id', '_uuid');
+    if (config.resolveRefs[uuidField]) {
+      const refConfig = config.resolveRefs[uuidField];
+      const refUuid = record[uuidField];
+      if (refUuid) {
+        // Ищем ID по UUID
+        const refResult = await client.query(
+          `SELECT ${refConfig.field} FROM ${refConfig.table} WHERE uuid = $1`,
+          [refUuid]
+        );
+        value = refResult.rows.length > 0 ? refResult.rows[0][refConfig.field] : null;
       }
-
-      fields.push(field);
-      values.push(value);
     }
+
+    fields.push(field);
+    values.push(value);
   }
 
   // Добавляем created_by / updated_by если есть
@@ -216,19 +205,27 @@ async function updateRecord(client, config, serverId, record, userId) {
   const values = [];
   let paramIndex = 1;
 
-  for (const field of config.fields) {
-    if (field === 'uuid' || field in record) {
+  // Поля которые есть в PostgreSQL (без служебных полей фронтенда)
+  const dbFields = {
+    heaters: ['premise_id', 'serial', 'name', 'power_kw', 'power_w', 'voltage_v', 'heating_element', 'protection_type', 'manufacture_date', 'decommission_date', 'inventory_number', 'installation_location', 'photo_url', 'status'],
+    premises: ['object_id', 'name', 'number', 'type', 'note'],
+    objects: ['name', 'code'],
+    users: ['login', 'password_hash', 'role'],
+    stickers: ['heater_id', 'number', 'check_date', 'electrician_id'],
+    heater_events: ['heater_id', 'user_id', 'event_type', 'from_premise_id', 'to_premise_id', 'old_status', 'new_status', 'comment']
+  };
+
+  const validFields = dbFields[config.tableName] || config.fields.filter(f => !f.startsWith('_') && !f.endsWith('_uuid'));
+
+  for (const field of validFields) {
+    if (field in record) {
       let value = record[field];
-      
-      // Пропускаем служебные поля
-      if (field.startsWith('_') || field.endsWith('_uuid')) {
-        continue;
-      }
-      
-      // Разрешаем ссылки на другие таблицы
-      if (config.resolveRefs[field]) {
-        const refConfig = config.resolveRefs[field];
-        const refUuid = record[field];
+
+      // Разрешаем ссылки на другие таблицы по UUID
+      const uuidField = field.replace('_id', '_uuid');
+      if (config.resolveRefs[uuidField]) {
+        const refConfig = config.resolveRefs[uuidField];
+        const refUuid = record[uuidField];
         if (refUuid) {
           const refResult = await client.query(
             `SELECT ${refConfig.field} FROM ${refConfig.table} WHERE uuid = $1`,
@@ -239,7 +236,7 @@ async function updateRecord(client, config, serverId, record, userId) {
           value = null;
         }
       }
-      
+
       updates.push(`${field} = $${paramIndex++}`);
       values.push(value);
     }

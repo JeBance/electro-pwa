@@ -334,7 +334,8 @@ function renderPremisesView() {
     if (h.status === 'warehouse') {
       warehouseHeaters.push(h);
     } else {
-      const key = h.premise_id || 0;
+      // Используем premise_uuid для группировки (или premise_id если uuid нет)
+      const key = h.premise_uuid || h.premise_id || 0;
       if (!premiseMap.has(key)) premiseMap.set(key, []);
       premiseMap.get(key).push(h);
     }
@@ -353,7 +354,8 @@ function renderPremisesView() {
 
   // Group by known premises
   window.premises.forEach(p => {
-    const items = premiseMap.get(p.id) || [];
+    // Ищем обогреватели по UUID или ID помещения
+    const items = premiseMap.get(p.uuid) || premiseMap.get(p.id) || [];
     if (items.length === 0) return;
 
     const hasNote = p.note && p.note.trim() !== '';

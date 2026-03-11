@@ -110,9 +110,16 @@ const Store = {
     return await this.db[table].toArray();
   },
 
-  async get(table, uuid) {
+  async get(table, key) {
     if (!this.db) throw new Error('Store not initialized');
-    return await this.db[table].get(uuid);
+    // Пробуем найти по UUID или ID
+    let record = await this.db.table(table).get(key);
+    if (!record) {
+      // Если не нашли по ключу, ищем по uuid или id
+      const all = await this.db.table(table).toArray();
+      record = all.find(r => r.uuid === key || String(r.id) === String(key));
+    }
+    return record;
   },
 
   async getByField(table, field, value) {
