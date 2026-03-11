@@ -49,14 +49,18 @@ const Store = {
   init() {
     this.db = new Dexie('ElectroDB');
     this.db.version(1).stores({
-      heaters: 'uuid, id, premise_uuid, status, name, serial, deleted_at, _sync_status, _modified',
-      premises: 'uuid, id, object_uuid, name, type, note, deleted_at, _sync_status, _modified',
+      // Основные таблицы с полным набором полей
+      heaters: 'uuid, id, premise_uuid, object_uuid, status, name, serial, sticker_number, power_kw, power_w, voltage_v, heating_element, protection_type, manufacture_date, decommission_date, inventory_number, installation_location, photo_url, object_name, premise_name, last_modified, deleted_at, updated_at, _sync_status, _modified, _sync_error',
+      premises: 'uuid, id, object_uuid, name, number, type, note, object_name, deleted_at, _sync_status, _modified',
       objects: 'uuid, id, name, code, deleted_at, _sync_status, _modified',
-      users: 'uuid, id, login, role, deleted_at, _sync_status, _modified',
-      stickers: 'uuid, id, heater_uuid, number, check_date, electrician_uuid, _sync_status, _modified',
-      events: 'uuid, id, heater_uuid, event_type, created_at, _sync_status, _modified',
+      users: 'uuid, id, login, role, password_hash, deleted_at, _sync_status, _modified',
+      stickers: 'uuid, id, heater_uuid, heater_id, number, check_date, electrician_uuid, electrician_id, created_at, _sync_status, _modified',
+      events: 'uuid, id, heater_uuid, heater_id, user_uuid, user_id, event_type, from_premise_uuid, to_premise_uuid, from_premise_id, to_premise_id, old_status, new_status, comment, user_name, heater_name, from_premise_name, to_premise_name, created_at, _sync_status, _modified',
+      // Служебные таблицы
       userObjects: '++id, user_uuid, object_uuid',
-      syncState: 'key' // Для хранения lastSyncTime
+      syncState: 'key',
+      // Очередь синхронизации (для обратной совместимости)
+      syncQueue: '++id, action, endpoint, method, data, timestamp, localId'
     });
     return this.db;
   },
@@ -220,24 +224,24 @@ const Store = {
   
   async syncFromServer(table, serverData) {
     if (!this.db) throw new Error('Store not initialized');
-    
+
     const localRecords = await this.db[table].toArray();
     const updates = [];
-    
+
     for (const serverRecord of serverData) {
       if (!serverRecord.uuid) {
         console.warn(`[Store] Server record without UUID:`, serverRecord);
         continue;
       }
-      
+
       const local = localRecords.find(r => r.uuid === serverRecord.uuid);
-      
+
       if (local && local._modified && local._sync_status === 'pending') {
         // Локальная запись ещё не синхронизирована - пропускаем
         // Сервер должен был принять её при синхронизации
         continue;
       }
-      
+
       if (local && !local._modified && local._sync_status === 'synced') {
         // Локальная запись уже синхронизирована и не изменена
         // Проверяем, новее ли версия с сервера
@@ -247,59 +251,109 @@ const Store = {
           continue; // Серверная версия не новее
         }
       }
-      
-      // Добавляем запись для обновления/создания
+
+      // Маппинг полей с сервера на клиент
+      const mappedRecord = this.mapServerRecord(table, serverRecord);
+
       updates.push({
-        ...serverRecord,
+        ...mappedRecord,
         _sync_status: 'synced',
         _modified: false,
         synced_at: new Date().toISOString()
       });
     }
-    
+
     if (updates.length > 0) {
       await this.db[table].bulkPut(updates);
       console.log(`[Store] Synced ${updates.length} records from server for ${table}`);
     }
-    
+
     return updates.length;
+  },
+
+  // Маппинг полей с сервера на клиент
+  mapServerRecord(table, serverRecord) {
+    const mapped = { ...serverRecord };
+
+    if (table === 'heaters') {
+      // heater_events → events
+      mapped.heater_uuid = serverRecord.uuid;
+      mapped.object_uuid = null; // Будет заполнено при синхронизации объектов
+    }
+
+    if (table === 'heater_events') {
+      // heater_events → events
+      mapped.heater_uuid = serverRecord.heater_uuid;
+      mapped.heater_id = serverRecord.heater_id;
+      mapped.user_uuid = serverRecord.user_uuid;
+      mapped.user_id = serverRecord.user_id;
+    }
+
+    if (table === 'stickers') {
+      mapped.heater_uuid = serverRecord.heater_uuid;
+      mapped.heater_id = serverRecord.heater_id;
+      mapped.electrician_uuid = serverRecord.electrician_uuid;
+      mapped.electrician_id = serverRecord.electrician_id;
+    }
+
+    return mapped;
   },
 
   // ===== МАССИВЫ ДЛЯ UI (кэш в памяти) =====
   async refreshHeaters() {
     const items = await this.getAll('heaters');
     const premises = await this.getAll('premises');
-    
-    // Создаём мапу UUID -> premise и ID -> premise
+    const objects = await this.getAll('objects');
+
+    // Создаём мапы UUID -> premise и UUID -> object
     const premiseUuidMap = new Map();
     const premiseIdMap = new Map();
     premises.forEach(p => {
       premiseUuidMap.set(p.uuid, p);
       premiseIdMap.set(p.id, p);
     });
-    
-    // Обновляем обогреватели: добавляем premise_id и premise_name
+
+    const objectUuidMap = new Map();
+    const objectIdMap = new Map();
+    objects.forEach(o => {
+      objectUuidMap.set(o.uuid, o);
+      objectIdMap.set(o.id, o);
+    });
+
+    // Обновляем обогреватели: добавляем premise_name и object_name
     window.heaters = items.filter(h => !h.deleted_at).map(h => {
-      // Сначала пробуем найти по UUID
+      // Сначала пробуем найти помещение по UUID
       let premise = premiseUuidMap.get(h.premise_uuid);
       // Если не нашли, пробуем по ID (для оффлайн-помещений)
       if (!premise && h.premise_id) {
         premise = premiseIdMap.get(h.premise_id);
       }
+
+      // Находим объект через помещение
+      let obj = null;
+      if (premise) {
+        obj = objectUuidMap.get(premise.object_uuid);
+        if (!obj && premise.object_id) {
+          obj = objectIdMap.get(premise.object_id);
+        }
+      }
+
       return {
         ...h,
         premise_id: premise?.id || h.premise_id,
-        premise_name: premise?.name || h.premise_name
+        premise_name: premise?.name || h.premise_name,
+        object_id: obj?.id,
+        object_name: obj?.name || h.object_name
       };
     });
-    
+
     return window.heaters;
   },
 
   async refreshPremises() {
     const items = await this.getAll('premises');
     const objects = await this.getAll('objects');
-    
+
     // Создаём мапу UUID -> object и ID -> object
     const objectUuidMap = new Map();
     const objectIdMap = new Map();
@@ -307,7 +361,7 @@ const Store = {
       objectUuidMap.set(o.uuid, o);
       objectIdMap.set(o.id, o);
     });
-    
+
     // Обновляем помещения: добавляем object_id и object_name
     window.premises = items.filter(p => !p.deleted_at).map(p => {
       // Сначала пробуем найти по UUID
@@ -322,7 +376,7 @@ const Store = {
         object_name: obj?.name || p.object_name
       };
     });
-    
+
     return window.premises;
   },
 
