@@ -71,8 +71,7 @@ const Store = {
       
       // ===== Служебные таблицы =====
       userObjects: '++id, user_uuid, user_id, object_uuid, object_id',
-      syncState: 'key',
-      syncQueue: '++id, action, endpoint, method, data, timestamp, localId'
+      syncState: 'key'
     });
     return this.db;
   },

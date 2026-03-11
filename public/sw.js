@@ -76,21 +76,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Background sync
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-queue') {
-    event.waitUntil(syncQueue());
-  }
-});
-
-async function syncQueue() {
-  // Notify clients to sync
-  const clients = await self.clients.matchAll();
-  clients.forEach((client) => {
-    client.postMessage({ type: 'SYNC' });
-  });
-}
-
 // Push notifications
 self.addEventListener('push', (event) => {
   const data = event.data?.json() || {};

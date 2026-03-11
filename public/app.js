@@ -120,7 +120,8 @@ function setBottomNav(view) {
   });
 }
 
-// ===== API ФУНКЦИИ (offline-first) =====
+// ===== API ФУНКЦИИ =====
+// Прямой fetch к серверу (используется только для логина и редких операций)
 async function api(endpoint, options = {}) {
   const token = localStorage.getItem('token');
   const headers = {
@@ -128,88 +129,24 @@ async function api(endpoint, options = {}) {
     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
   };
 
-  // GET запросы - только из IndexedDB (через Store)
-  if (options.method === 'GET') {
-    return await apiGet(endpoint);
-  }
-
-  // non-GET запросы - запись в IndexedDB + очередь
-  return await apiMutate(endpoint, options, headers);
-}
-
-async function apiGet(endpoint) {
-  // Маршрутизация к Store методам
-  if (endpoint.startsWith('/heaters')) {
-    return window.heaters || [];
-  }
-  if (endpoint.startsWith('/premises')) {
-    return window.premises || [];
-  }
-  if (endpoint.startsWith('/objects')) {
-    return window.objects || [];
-  }
-  if (endpoint.startsWith('/users')) {
-    return window.users || [];
-  }
-  if (endpoint.startsWith('/stickers')) {
-    return await Store.getAll('stickers');
-  }
-  if (endpoint.startsWith('/events')) {
-    return await Store.getAll('events');
-  }
-  if (endpoint.startsWith('/my-objects')) {
-    return await Store.getAll('userObjects');
-  }
-  return [];
-}
-
-async function apiMutate(endpoint, options, headers) {
-  const data = options.body ? JSON.parse(options.body) : null;
-
-  // Добавляем в очередь синхронизации
-  await Store.db.syncQueue.add({
-    endpoint,
-    method: options.method,
-    data,
-    timestamp: Date.now()
+  const response = await fetch(`${API_BASE}/api${endpoint}`, {
+    ...options,
+    headers
   });
 
-  // Если онлайн - пробуем отправить сразу
-  if (navigator.onLine) {
-    try {
-      const response = await fetch(`${API_BASE}/api${endpoint}`, {
-        ...options,
-        headers
-      });
-
-      if (response.status === 401) {
-        logout();
-        throw new Error('Unauthorized');
-      }
-
-      if (response.status === 204) {
-        return { success: true };
-      }
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Request failed');
-
-      // Обновляем локальные данные после успешного запроса
-      await Store.syncFromServer();
-
-      return result;
-    } catch (err) {
-      if (err.message === 'Failed to fetch') {
-        // Офлайн - операция уже в очереди
-        showToast('Офлайн: операция сохранена в очередь');
-        return { offline: true };
-      }
-      throw err;
-    }
+  if (response.status === 401) {
+    logout();
+    throw new Error('Unauthorized');
   }
 
-  showToast('Офлайн: операция сохранена в очередь');
-  return { offline: true };
+  if (response.status === 204) {
+    return { success: true };
+  }
+
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Request failed');
+
+  return result;
 }
 
 // ===== AUTH =====
