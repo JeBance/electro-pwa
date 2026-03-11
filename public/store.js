@@ -234,13 +234,22 @@ const Store = {
     const items = await this.getAll('heaters');
     const premises = await this.getAll('premises');
     
-    // Создаём мапу UUID -> premise
-    const premiseMap = new Map();
-    premises.forEach(p => premiseMap.set(p.uuid, p));
+    // Создаём мапу UUID -> premise и ID -> premise
+    const premiseUuidMap = new Map();
+    const premiseIdMap = new Map();
+    premises.forEach(p => {
+      premiseUuidMap.set(p.uuid, p);
+      premiseIdMap.set(p.id, p);
+    });
     
-    // Обновляем обогреватели: добавляем premise_id из UUID
+    // Обновляем обогреватели: добавляем premise_id и premise_name
     window.heaters = items.filter(h => !h.deleted_at).map(h => {
-      const premise = premiseMap.get(h.premise_uuid);
+      // Сначала пробуем найти по UUID
+      let premise = premiseUuidMap.get(h.premise_uuid);
+      // Если не нашли, пробуем по ID (для оффлайн-помещений)
+      if (!premise && h.premise_id) {
+        premise = premiseIdMap.get(h.premise_id);
+      }
       return {
         ...h,
         premise_id: premise?.id || h.premise_id,
@@ -255,13 +264,22 @@ const Store = {
     const items = await this.getAll('premises');
     const objects = await this.getAll('objects');
     
-    // Создаём мапу UUID -> object
-    const objectMap = new Map();
-    objects.forEach(o => objectMap.set(o.uuid, o));
+    // Создаём мапу UUID -> object и ID -> object
+    const objectUuidMap = new Map();
+    const objectIdMap = new Map();
+    objects.forEach(o => {
+      objectUuidMap.set(o.uuid, o);
+      objectIdMap.set(o.id, o);
+    });
     
-    // Обновляем помещения: добавляем object_id из UUID
+    // Обновляем помещения: добавляем object_id и object_name
     window.premises = items.filter(p => !p.deleted_at).map(p => {
-      const obj = objectMap.get(p.object_uuid);
+      // Сначала пробуем найти по UUID
+      let obj = objectUuidMap.get(p.object_uuid);
+      // Если не нашли, пробуем по ID (для оффлайн-объектов)
+      if (!obj && p.object_id) {
+        obj = objectIdMap.get(p.object_id);
+      }
       return {
         ...p,
         object_id: obj?.id || p.object_id,

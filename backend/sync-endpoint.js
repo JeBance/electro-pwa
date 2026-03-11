@@ -131,14 +131,14 @@ async function createRecord(client, config, record, userId) {
   for (const field of config.fields) {
     if (field === 'uuid' || field in record) {
       let value = record[field];
-      
+
       // Пропускаем служебные поля
-      if (field.startsWith('_') || field.endsWith('_uuid')) {
+      if (field.startsWith('_')) {
         continue;
       }
-      
-      // Разрешаем ссылки на другие таблицы
-      if (config.resolveRefs[field]) {
+
+      // Разрешаем ссылки на другие таблицы по UUID
+      if (config.resolveRefs[field] && field.endsWith('_uuid')) {
         const refConfig = config.resolveRefs[field];
         const refUuid = record[field];
         if (refUuid) {
@@ -153,6 +153,20 @@ async function createRecord(client, config, record, userId) {
         }
       }
       
+      // Пропускаем поля _uuid которые уже обработали
+      if (field.endsWith('_uuid')) {
+        continue;
+      }
+
+      // Если значение всё ещё null, пробуем использовать прямой ID (для оффлайн-записей)
+      if (value === null && config.resolveRefs) {
+        // Проверяем есть ли соответствующее поле без _uuid
+        const directField = field.replace('_uuid', '');
+        if (record[directField]) {
+          value = record[directField];
+        }
+      }
+
       fields.push(field);
       values.push(value);
     }
@@ -165,7 +179,7 @@ async function createRecord(client, config, record, userId) {
 
   const fieldList = fields.join(', ');
   const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
-  
+
   const sql = `
     INSERT INTO ${config.tableName} (${fieldList}, synced_at)
     VALUES (${placeholders}, CURRENT_TIMESTAMP)
