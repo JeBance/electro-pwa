@@ -23,8 +23,7 @@ async function initApp() {
 
   // Проверяем авторизацию
   if (checkAuth()) {
-    currentUser = checkAuth();
-    if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser.login} авторизован`);
+    if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser?.login || 'anonymous'} авторизован`);
 
     // Сначала загружаем из IndexedDB (мгновенный UI)
     await loadLocalData();
@@ -259,7 +258,10 @@ function logout() {
 
 function checkAuth() {
   const token = localStorage.getItem('token');
-  if (!token) return false;
+  if (!token) {
+    currentUser = null;
+    return false;
+  }
 
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
@@ -269,7 +271,8 @@ function checkAuth() {
     }
     currentUser = payload;
     return true;
-  } catch {
+  } catch (err) {
+    console.error('[checkAuth] Invalid token:', err);
     logout();
     return false;
   }
@@ -1736,36 +1739,60 @@ async function loadAdminData() {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       };
-      
-      // Загружаем пользователей
-      const usersRes = await fetch('/api/users', { headers });
-      if (usersRes.ok) {
-        const usersData = await usersRes.json();
-        window.users = usersData;
-        await Store.db.users.bulkPut(usersData);
+
+      try {
+        // Загружаем пользователей
+        const usersRes = await fetch('/api/users', { headers });
+        if (usersRes.ok) {
+          const usersData = await usersRes.json();
+          window.users = usersData;
+          await Store.db.users.bulkPut(usersData);
+        }
+      } catch (err) {
+        console.error('[loadAdminData] Failed to load users:', err);
+        // Fallback на IndexedDB
+        if (window.users.length === 0) {
+          window.users = await Store.db.users.toArray();
+        }
       }
-      
-      // Загружаем объекты
-      const objectsRes = await fetch('/api/objects', { headers });
-      if (objectsRes.ok) {
-        const objectsData = await objectsRes.json();
-        window.objects = objectsData;
-        await Store.db.objects.bulkPut(objectsData);
+
+      try {
+        // Загружаем объекты
+        const objectsRes = await fetch('/api/objects', { headers });
+        if (objectsRes.ok) {
+          const objectsData = await objectsRes.json();
+          window.objects = objectsData;
+          await Store.db.objects.bulkPut(objectsData);
+        }
+      } catch (err) {
+        console.error('[loadAdminData] Failed to load objects:', err);
+        // Fallback на IndexedDB
+        if (window.objects.length === 0) {
+          window.objects = await Store.db.objects.toArray();
+        }
       }
-      
-      // Загружаем помещения
-      const premisesRes = await fetch('/api/premises', { headers });
-      if (premisesRes.ok) {
-        const premisesData = await premisesRes.json();
-        window.premises = premisesData;
-        await Store.db.premises.bulkPut(premisesData);
+
+      try {
+        // Загружаем помещения
+        const premisesRes = await fetch('/api/premises', { headers });
+        if (premisesRes.ok) {
+          const premisesData = await premisesRes.json();
+          window.premises = premisesData;
+          await Store.db.premises.bulkPut(premisesData);
+        }
+      } catch (err) {
+        console.error('[loadAdminData] Failed to load premises:', err);
+        // Fallback на IndexedDB
+        if (window.premises.length === 0) {
+          window.premises = await Store.db.premises.toArray();
+        }
       }
     }
-    
+
     // Используем данные из window
-    const usersData = window.users;
-    const objectsData = window.objects;
-    const premisesData = window.premises;
+    const usersData = window.users || [];
+    const objectsData = window.objects || [];
+    const premisesData = window.premises || [];
 
     // Render users
     const usersList = $('#users-list');
