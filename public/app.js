@@ -2344,9 +2344,9 @@ async function deleteObject(id) {
       headers
     });
     
-    if (!response.ok && response.status !== 204) {
+    if (!response.ok) {
       const data = await response.json();
-      throw new Error(data.error || 'Ошибка удаления');
+      throw new Error(data.error || `Ошибка ${response.status}`);
     }
     
     showToast('Объект удалён');

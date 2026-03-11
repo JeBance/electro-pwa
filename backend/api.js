@@ -139,13 +139,13 @@ router.delete('/users/:id', authMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (parseInt(id) === req.user.id) {
-      return res.status(400).json({ error: 'Cannot delete yourself' });
+      return res.status(400).json({ error: 'Нельзя удалить самого себя' });
     }
     await deleteUser(id);
     res.status(204).send();
   } catch (err) {
     console.error('Delete user error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
@@ -228,7 +228,7 @@ router.delete('/objects/:id', authMiddleware(['admin']), async (req, res) => {
     res.status(204).send();
   } catch (err) {
     console.error('Delete object error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
@@ -453,7 +453,7 @@ router.delete('/premises/:id', authMiddleware(['admin']), async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Delete premise error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   } finally {
     client.release();
   }
@@ -817,7 +817,7 @@ router.delete('/heaters/:id', authMiddleware(['admin']), async (req, res) => {
     res.status(204).send();
   } catch (err) {
     console.error('Delete heater error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
