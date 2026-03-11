@@ -1035,13 +1035,17 @@ function updatePremisesSelect(objectId, lastPremiseId = '') {
     return;
   }
 
-  const filtered = window.premises.filter(p => String(p.object_id) === String(objectId));
+  // Фильтруем помещения по object_id или object_uuid
+  const filtered = window.premises.filter(p => 
+    String(p.object_id) === String(objectId) || 
+    String(p.object_uuid) === String(objectId)
+  );
   let html = '<option value="">Без помещения (на склад)</option>';
 
   if (filtered.length > 0) {
     html += filtered.map(p => {
-      const isSelected = String(p.id) === String(lastPremiseId) ? 'selected' : '';
-      return `<option value="${p.id}" ${isSelected}>${p.name}</option>`;
+      const isSelected = String(p.id) === String(lastPremiseId) || String(p.uuid) === String(lastPremiseId) ? 'selected' : '';
+      return `<option value="${p.uuid || p.id}" ${isSelected}>${p.name}</option>`;
     }).join('');
   }
 
@@ -1110,7 +1114,10 @@ async function handleAddHeater(e) {
 
   // Находим UUID объекта и помещения
   const selectedObject = window.objects.find(o => String(o.id) === String(objectId) || o.uuid === objectId);
-  const selectedPremise = premiseId ? window.premises.find(p => String(p.id) === String(premiseId) || p.uuid === premiseId) : null;
+  // Ищем помещение по UUID или ID
+  const selectedPremise = premiseId ? window.premises.find(p => 
+    String(p.uuid) === String(premiseId) || String(p.id) === String(premiseId)
+  ) : null;
 
   if (!selectedObject) {
     showToast('Ошибка: объект не найден');
@@ -1328,10 +1335,12 @@ async function showEditHeaterModal(id) {
   }
 
   // Find current premise (may be null for offline-created premises)
-  const currentPremise = heater.premise_id ? window.premises.find(p => p.id === heater.premise_id) : null;
+  const currentPremise = heater.premise_id ? window.premises.find(p => 
+    p.id === heater.premise_id || p.uuid === heater.premise_uuid
+  ) : null;
 
   // Get object_id from heater data or current premise
-  const object_id = heater.object_id || currentPremise?.object_id;
+  const object_id = heater.object_id || heater.object_uuid || currentPremise?.object_id || currentPremise?.object_uuid;
 
   // Load objects if not available
   if (window.objects.length === 0) {
@@ -1339,16 +1348,16 @@ async function showEditHeaterModal(id) {
   }
 
   const objectsHtml = window.objects.map(o =>
-    `<option value="${o.id}" ${o.id === object_id ? 'selected' : ''}>${o.name}</option>`
+    `<option value="${o.uuid || o.id}" ${(o.uuid === object_id || o.id === object_id) ? 'selected' : ''}>${o.name}</option>`
   ).join('');
 
   // Get all premises for this object (or all premises if object not found)
   const availablePremises = object_id
-    ? window.premises.filter(p => p.object_id === object_id)
+    ? window.premises.filter(p => p.object_id === object_id || p.object_uuid === object_id)
     : window.premises;
 
   const premisesHtml = availablePremises.map(p =>
-    `<option value="${p.id}" ${String(p.id) === String(heater.premise_id) ? 'selected' : ''}>${p.name}</option>`
+    `<option value="${p.uuid || p.id}" ${String(p.uuid) === String(heater.premise_uuid) || String(p.id) === String(heater.premise_id) ? 'selected' : ''}>${p.name}</option>`
   ).join('');
 
   // Экранируем специальные символы для HTML
