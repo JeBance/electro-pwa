@@ -16,6 +16,7 @@ const API_BASE = '';
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 async function initApp() {
   Store.init();
+  SyncManager.init();
 
   // Записываем лог инициализации
   if (window.AppLogs) AppLogs.info('Приложение запущено');
@@ -28,8 +29,14 @@ async function initApp() {
     await loadLocalData();
     if (window.AppLogs) AppLogs.info('Данные загружены из IndexedDB');
 
-    // Синхронизация отключена — работаем автономно
-    if (window.AppLogs) AppLogs.info('Автономный режим (синхронизация отключена)');
+    // Автономный режим, но синхронизация работает в фоне при наличии интернета
+    if (navigator.onLine) {
+      if (window.AppLogs) AppLogs.info('Онлайн — синхронизация в фоне...');
+      // Синхронизируем очередь через 2 секунды после загрузки
+      setTimeout(() => SyncManager.sync(), 2000);
+    } else {
+      if (window.AppLogs) AppLogs.warn('Офлайн режим — данные будут синхронизированы при подключении');
+    }
   } else {
     if (window.AppLogs) AppLogs.info('Пользователь не авторизован');
   }
@@ -2440,22 +2447,16 @@ async function updateSyncStatus() {
   const isOnline = navigator.onLine;
   const el = $('#sync-status');
   if (el) {
-    // Get pending records count from all tables
-    const tables = ['heaters', 'premises', 'objects'];
-    let pendingCount = 0;
-    
-    for (const table of tables) {
-      const pending = await Store.getPending(table);
-      pendingCount += pending.length;
-    }
+    // Get queue operations count
+    const queueCount = await Store.db.syncQueue.count();
 
     if (!isOnline) {
-      el.textContent = pendingCount > 0
-        ? `🔴 Офлайн (${pendingCount} ожидает)`
+      el.textContent = queueCount > 0
+        ? `🔴 Офлайн (${queueCount} в очереди)`
         : '🔴 Офлайн';
     } else {
-      el.textContent = pendingCount > 0
-        ? `🟡 Синхронизация (${pendingCount})`
+      el.textContent = queueCount > 0
+        ? `🟡 Синхронизация (${queueCount})`
         : '🟢 Онлайн';
     }
   }
@@ -2528,38 +2529,35 @@ async function forceSync() {
 
 // Показать детали очереди синхронизации
 async function showQueueDetails() {
-  // Получаем все pending записи из всех таблиц
-  const tables = ['heaters', 'premises', 'objects'];
-  const pending = [];
-  
-  for (const table of tables) {
-    const items = await Store.getPending(table);
-    pending.push(...items.map(item => ({ ...item, _table: table })));
-  }
-  
-  if (pending.length === 0) {
+  // Получаем все операции из очереди syncQueue
+  const operations = await Store.db.syncQueue.toArray();
+
+  if (operations.length === 0) {
     showToast('Очередь пуста');
     return;
   }
-  
+
   const html = `
     <div class="modal-header">
-      <div class="modal-title">📦 Ожидает синхронизации (${pending.length})</div>
+      <div class="modal-title">📦 Очередь синхронизации (${operations.length})</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div style="max-height: 400px; overflow-y: auto;">
-      ${pending.map((item) => {
-        const statusColors = { pending: '#ff9800', failed: '#f44336' };
-        const statusIcons = { pending: '⏳', failed: '❌' };
-        const status = item._sync_status || 'pending';
+      ${operations.map((op, idx) => {
+        const methodColors = { POST: '#4caf50', PUT: '#2196f3', DELETE: '#f44336' };
+        const methodIcons = { POST: '➕', PUT: '✏️', DELETE: '🗑️' };
+        const methodColor = methodColors[op.method] || '#666';
+        const methodIcon = methodIcons[op.method] || '•';
+        const timeStr = new Date(op.timestamp).toLocaleString('ru-RU');
         return `
-          <div style="padding: 10px; margin: 5px 0; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid ${statusColors[status] || '#666'};">
+          <div style="padding: 10px; margin: 5px 0; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid ${methodColor};">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-weight: 600;">${statusIcons[status] || '•'} ${item._table}</span>
-              <span style="font-size: 11px; color: var(--text-secondary);">${item.uuid?.substring(0, 8)}...</span>
+              <span style="font-weight: 600;">${methodIcon} ${op.method}</span>
+              <span style="font-size: 11px; color: var(--text-secondary);">${timeStr}</span>
             </div>
-            <div style="font-size: 13px; margin-top: 4px;">${item.name || 'Без названия'}</div>
-            ${item._sync_error ? `<div style="font-size: 11px; color: #f44336; margin-top: 4px;">${item._sync_error}</div>` : ''}
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">${op.endpoint}</div>
+            ${op.data?.name ? `<div style="font-size: 13px; margin-top: 4px;">${op.data.name}</div>` : ''}
+            ${op.localId ? `<div style="font-size: 11px; color: var(--accent); margin-top: 4px;">ID: ${op.localId}</div>` : ''}
           </div>
         `;
       }).join('')}
@@ -2569,7 +2567,7 @@ async function showQueueDetails() {
       <button class="btn btn-danger btn-small" onclick="clearQueueAndData()" style="flex: 1">🗑️ Сброс данных</button>
     </div>
   `;
-  
+
   showModal(html);
 }
 
