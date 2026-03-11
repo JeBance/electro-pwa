@@ -2409,41 +2409,8 @@ async function updateSyncStatus() {
   }
 }
 
-// Initialize - offline first
-async function init() {
-  // Initialize sync manager
-  if (typeof SyncManager !== 'undefined') {
-    SyncManager.init();
-  }
-
-  if (checkAuth()) {
-    // Load data from cache first (works offline)
-    await loadLocalData();
-    await setView('heaters');
-  } else {
-    await setView('login');
-  }
-
-  // Listen for online/offline
-  window.addEventListener('online', () => {
-    showToast('🟢 Онлайн');
-    render();
-    SyncManager.sync();  // Sync any pending operations
-    updateSyncStatus();
-    // Refresh data from server
-    loadLocalData();
-  });
-
-  window.addEventListener('offline', () => {
-    showToast('🔴 Офлайн');
-    render();
-    updateSyncStatus();
-  });
-}
-
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 initApp();
-init();
 
 // Make functions globally accessible for onclick handlers
 window.showUserObjectsModal = showUserObjectsModal;
