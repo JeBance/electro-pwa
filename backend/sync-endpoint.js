@@ -7,18 +7,15 @@ const crypto = require('crypto');
 // Генерация детерминированного UUID на основе timestamp
 // Такая же функция как на фронтенде для совместимости
 function generateUUIDSync(timestamp = Date.now()) {
-  // Простая детерминированная генерация на основе timestamp
-  // Формат UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 символов)
-  const timeHex = timestamp.toString(16).padStart(8, '0');
-  const random1 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
-  const random2 = Math.floor(Math.random() * 0x0FFF).toString(16).padStart(4, '0'); // 4xxx
-  const random3 = Math.floor(Math.random() * 0x3FFF + 0x8000).toString(16).padStart(4, '0'); // 8xxx, 9xxx, axxx, bxxx
-  const random4 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
+  // UUID v4 формат: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 символов)
+  // Используем случайные значения для уникальности
+  const part1 = Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
+  const part2 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+  const part3 = Math.floor(Math.random() * 0x0FFF).toString(16).padStart(4, '0'); // 4xxx
+  const part4 = Math.floor(Math.random() * 0x3FFF + 0x8000).toString(16).padStart(4, '0'); // 8/9/a/b
+  const part5 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
   
-  // Формируем UUID: time-random-4random-3random-random
-  const uuid = `${timeHex}-${random1}-4${random2.slice(1)}-${random3}-${random4}`;
-  
-  return uuid;
+  return `${part1}-${part2}-4${part3.slice(1)}-${part4}-${part5}`;
 }
 
 // Обработка синхронизации для одной таблицы
