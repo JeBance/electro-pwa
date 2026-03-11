@@ -189,9 +189,13 @@ async function createRecord(client, config, record, userId) {
   const fieldList = fields.join(', ');
   const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
 
+  // INSERT ... ON CONFLICT (uuid) DO UPDATE
+  const updateFields = fields.filter(f => f !== 'uuid').map(f => `${f} = EXCLUDED.${f}`).join(', ');
+  
   const sql = `
     INSERT INTO ${config.tableName} (${fieldList}, synced_at)
     VALUES (${placeholders}, CURRENT_TIMESTAMP)
+    ON CONFLICT (uuid) DO UPDATE SET ${updateFields}, synced_at = CURRENT_TIMESTAMP
     RETURNING id
   `;
 

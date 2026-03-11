@@ -111,8 +111,16 @@ const Store = {
 
   async get(table, key) {
     if (!this.db) throw new Error('Store not initialized');
-    // Пробуем найти по UUID или ID
-    let record = await this.db.table(table).get(key);
+    if (!key) return null;
+    
+    // Пробуем найти по ключу
+    let record = null;
+    try {
+      record = await this.db.table(table).get(key);
+    } catch (err) {
+      // Если ошибка ключа, игнорируем
+    }
+    
     if (!record) {
       // Если не нашли по ключу, ищем по uuid или id
       const all = await this.db.table(table).toArray();
