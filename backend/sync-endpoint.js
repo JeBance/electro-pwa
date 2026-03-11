@@ -178,6 +178,11 @@ async function createRecord(client, config, record, userId) {
   for (const field of validFields) {
     let value = record[field];
 
+    // Пропускаем UUID поля которые не соответствуют БД
+    if (field.endsWith('_uuid') && !dbFields[config.tableName].includes(field)) {
+      continue;
+    }
+
     // Сначала проверяем есть ли уже resolved ID (из idMapping)
     if (value === null || value === undefined) {
       const uuidField = field.replace('_id', '_uuid');
@@ -193,6 +198,11 @@ async function createRecord(client, config, record, userId) {
           value = refResult.rows.length > 0 ? refResult.rows[0][refConfig.field] : null;
         }
       }
+    }
+
+    // Пропускаем поля с null значением (кроме обязательных)
+    if ((value === null || value === undefined) && field !== 'premise_id') {
+      continue;
     }
 
     fields.push(field);
