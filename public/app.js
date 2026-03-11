@@ -1730,9 +1730,9 @@ let showDeleted = false;
 async function loadAdminData() {
   try {
     // Use cached data first (works offline)
-    const usersData = window.users.length > 0 ? users : await Store.db.users.toArray();
-    const objectsData = window.objects.length > 0 ? objects : await Store.db.objects.toArray();
-    const premisesData = window.premises.length > 0 ? premises : await Store.db.premises.toArray();
+    const usersData = window.users.length > 0 ? window.users : await Store.db.users.toArray();
+    const objectsData = window.objects.length > 0 ? window.objects : await Store.db.objects.toArray();
+    const premisesData = window.premises.length > 0 ? window.premises : await Store.db.premises.toArray();
 
     // Render users
     const usersList = $('#users-list');
@@ -1958,28 +1958,59 @@ async function handleAddUser(e) {
   e.preventDefault();
   const form = e.target;
   try {
-    await api('/users', {
+    const token = localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+    
+    const response = await fetch('/api/users', {
       method: 'POST',
+      headers,
       body: JSON.stringify({
         login: form.login.value,
         password: form.password.value,
         role: form.role.value
       })
     });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Ошибка добавления');
+    }
+    
     closeModal();
     showToast('Пользователь добавлен');
-    loadAdminData();
+    await loadAdminData();
   } catch (err) {
+    console.error('[handleAddUser] error:', err);
     showToast(err.message);
   }
 }
 
 async function updateUserRole(id, role) {
   try {
-    await api(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }) });
+    const token = localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+    
+    const response = await fetch(`/api/users/${id}/role`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ role })
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Ошибка обновления');
+    }
+    
     showToast('Роль обновлена');
     await loadAdminData();
   } catch (err) {
+    console.error('[updateUserRole] error:', err);
     showToast(err.message);
   }
 }
@@ -2018,20 +2049,34 @@ async function handleEditUser(e, userId) {
   const data = {
     role: form.role.value
   };
-  
+
   if (form.password.value) {
     data.password = form.password.value;
   }
-  
+
   try {
-    await api(`/users/${userId}`, {
+    const token = localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+    
+    const response = await fetch(`/api/users/${userId}`, {
       method: 'PUT',
+      headers,
       body: JSON.stringify(data)
     });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Ошибка обновления');
+    }
+    
     closeModal();
     showToast('Пользователь обновлён');
     await loadAdminData();
   } catch (err) {
+    console.error('[handleEditUser] error:', err);
     showToast(err.message);
   }
 }
@@ -2138,14 +2183,28 @@ async function handleEditObject(e, objectId) {
   } else {
     // Online: API call
     try {
-      await api(`/objects/${objectId}`, {
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      };
+      
+      const response = await fetch(`/api/objects/${objectId}`, {
         method: 'PUT',
+        headers,
         body: JSON.stringify(objectData)
       });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Ошибка обновления');
+      }
+      
       closeModal();
       showToast('Объект обновлён');
-      loadAdminData();
+      await loadAdminData();
     } catch (err) {
+      console.error('[handleEditObject] error:', err);
       showToast(err.message);
     }
   }
