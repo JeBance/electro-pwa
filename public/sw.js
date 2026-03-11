@@ -40,28 +40,26 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  
-  // API requests - network first
+
+  // API requests - network only (no caching)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Return network response
-          return response;
-        })
-        .catch(() => {
-          // Offline - return cached response if available
-          return caches.match(request);
-        })
+      fetch(request).catch(() => {
+        // Offline - return error response
+        return new Response(JSON.stringify({ error: 'Offline' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      })
     );
     return;
   }
-  
+
   // Static assets - cache first
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
-      
+
       return fetch(request).then((response) => {
         // Cache successful responses
         if (response.ok && response.status === 200) {
