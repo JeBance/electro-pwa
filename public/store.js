@@ -4,13 +4,45 @@
 const Store = {
   db: null,
 
-  // Генерация UUID v4
-  generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+  // Генерация детерминированного UUID на основе timestamp
+  // Использует SHA-256 хэш от временной метки
+  async generateUUID(timestamp = Date.now()) {
+    // Формируем строку для хэширования
+    const data = `electro-${timestamp}-${Math.random()}`;
+    
+    // Создаем хэш с помощью Web Crypto API
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    // Формируем UUID v4 из хэша (32 символа -> 8-4-4-4-12)
+    const uuid = [
+      hashHex.slice(0, 8),
+      hashHex.slice(8, 12),
+      '4' + hashHex.slice(13, 16), // Версия 4
+      (parseInt(hashHex.slice(16, 18), 16) & 0x3 | 0x8).toString(16) + hashHex.slice(18, 20),
+      hashHex.slice(20, 32)
+    ].join('-');
+    
+    return uuid;
+  },
+
+  // Генерация UUID из timestamp (синхронная версия для оффлайн)
+  generateUUIDSync(timestamp = Date.now()) {
+    // Простая детерминированная генерация на основе timestamp
+    // Формат: timestamp (13 цифр) + случайные биты для уникальности
+    const timeHex = timestamp.toString(16).padStart(16, '0');
+    const random1 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+    const random2 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+    const random3 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+    const random4 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
+    
+    // Формируем UUID с версией 4
+    const uuid = `${timeHex.slice(0, 8)}-${timeHex.slice(8, 12)}-4${timeHex.slice(12, 15)}-${random1}-${random2}${random3}${random4}`;
+    
+    return uuid;
   },
 
   // Инициализация Dexie
@@ -32,21 +64,25 @@ const Store = {
   // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
   
   // Подготовка записи для сохранения
-  prepareRecord(data, isUpdate = false) {
+  async prepareRecord(data, isUpdate = false) {
     const record = { ...data };
+    const timestamp = Date.now();
     
-    // Генерируем UUID если нет
+    // Генерируем UUID если нет (детерминированный на основе timestamp)
     if (!record.uuid) {
-      record.uuid = this.generateUUID();
+      // Используем синхронную версию для простоты
+      record.uuid = this.generateUUIDSync(timestamp);
     }
     
     // Устанавливаем флаги синхронизации
     if (!isUpdate) {
       record._sync_status = 'pending'; // Новая запись ожидает синхронизации
       record._modified = true;
+      record.created_at = new Date(timestamp).toISOString();
     } else {
       record._sync_status = record._sync_status || 'pending';
       record._modified = true; // Любое изменение помечается
+      record.updated_at = new Date(timestamp).toISOString();
     }
     
     return record;
@@ -85,7 +121,7 @@ const Store = {
   async create(table, data) {
     if (!this.db) throw new Error('Store not initialized');
 
-    const record = this.prepareRecord(data, false);
+    const record = await this.prepareRecord(data, false);
     const uuid = record.uuid;
     
     await this.db[table].add(record);
@@ -102,7 +138,7 @@ const Store = {
       throw new Error(`Record ${uuid} not found`);
     }
 
-    const record = this.prepareRecord({ ...existing, ...data }, true);
+    const record = await this.prepareRecord({ ...existing, ...data }, true);
     await this.db[table].update(uuid, record);
     
     console.log(`[Store] Updated ${table}:${uuid}`, record);

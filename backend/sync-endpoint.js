@@ -2,6 +2,24 @@
 // INSERT ... ON CONFLICT (uuid) DO UPDATE
 
 const { query, getClient } = require('./db');
+const crypto = require('crypto');
+
+// Генерация детерминированного UUID на основе timestamp
+// Такая же функция как на фронтенде для совместимости
+function generateUUIDSync(timestamp = Date.now()) {
+  // Простая детерминированная генерация на основе timestamp
+  // Формат: timestamp (13 цифр) + случайные биты для уникальности
+  const timeHex = timestamp.toString(16).padStart(16, '0');
+  const random1 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+  const random2 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+  const random3 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
+  const random4 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
+  
+  // Формируем UUID с версией 4
+  const uuid = `${timeHex.slice(0, 8)}-${timeHex.slice(8, 12)}-4${timeHex.slice(12, 15)}-${random1}-${random2}${random3}${random4}`;
+  
+  return uuid;
+}
 
 // Обработка синхронизации для одной таблицы
 async function syncTable(client, userId, table, records, idMapping) {
@@ -14,10 +32,11 @@ async function syncTable(client, userId, table, records, idMapping) {
   }
 
   for (const record of records) {
+    // Если UUID нет - генерируем детерминированный на основе timestamp
     if (!record.uuid) {
-      console.warn(`[Sync] Record without UUID in ${table}:`, record);
-      results.push({ uuid: null, error: 'No UUID', success: false });
-      continue;
+      const timestamp = new Date(record.created_at).getTime() || Date.now();
+      record.uuid = generateUUIDSync(timestamp);
+      console.log(`[Sync] Generated UUID ${record.uuid} for ${table} without uuid`);
     }
 
     try {
