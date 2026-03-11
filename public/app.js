@@ -16,7 +16,6 @@ const API_BASE = '';
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 async function initApp() {
   Store.init();
-  SyncManager.init();
 
   // Записываем лог инициализации
   if (window.AppLogs) AppLogs.info('Приложение запущено');
@@ -25,17 +24,12 @@ async function initApp() {
   if (checkAuth()) {
     if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser?.login || 'anonymous'} авторизован`);
 
-    // Сначала загружаем из IndexedDB (мгновенный UI)
+    // Загружаем из IndexedDB
     await loadLocalData();
     if (window.AppLogs) AppLogs.info('Данные загружены из IndexedDB');
 
-    // Потом синхронизируем с сервером в фоне
-    if (navigator.onLine) {
-      if (window.AppLogs) AppLogs.info('Начало синхронизации с сервером...');
-      await SyncManager.sync();
-    } else {
-      if (window.AppLogs) AppLogs.warn('Работа в оффлайн режиме');
-    }
+    // Синхронизация отключена — работаем автономно
+    if (window.AppLogs) AppLogs.info('Автономный режим (синхронизация отключена)');
   } else {
     if (window.AppLogs) AppLogs.info('Пользователь не авторизован');
   }
@@ -229,16 +223,13 @@ async function login(loginVal, password) {
     const data = await res.json();
     localStorage.setItem('token', data.token);
     currentUser = data.user;
-    
+
     if (window.AppLogs) AppLogs.success(`Пользователь ${data.user.login} вошёл в систему`);
 
-    // Загружаем данные с сервера после входа
+    // Загружаем пользователей с сервера (только пользователи!)
+    await loadUsersFromServer();
+    // Загружаем локальные данные
     await loadLocalData();
-    
-    // Синхронизируем с сервером
-    if (navigator.onLine) {
-      await SyncManager.sync();
-    }
 
     showToast('Вход выполнен');
     setView('heaters');
@@ -247,6 +238,32 @@ async function login(loginVal, password) {
     if (window.AppLogs) AppLogs.error(`Ошибка входа: ${err.message}`);
     showToast(err.message || 'Ошибка входа');
     throw err;
+  }
+}
+
+// Загрузка только пользователей с сервера
+async function loadUsersFromServer() {
+  if (!navigator.onLine) return;
+
+  try {
+    const token = localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+
+    const res = await fetch('/api/users', { headers });
+    if (res.ok) {
+      const users = await res.json();
+      window.users = users;
+      await Store.db.users.clear();
+      await Store.db.users.bulkPut(users.map(u => ({
+        ...u,
+        uuid: u.uuid || Store.generateUUIDSync(u.created_at ? new Date(u.created_at).getTime() : Date.now())
+      })));
+    }
+  } catch (err) {
+    console.error('[loadUsersFromServer] error:', err);
   }
 }
 
@@ -847,10 +864,7 @@ async function showAddHeaterModal() {
     await loadLocalData();
   }
 
-  console.log('[showAddHeaterModal] window.objects:', window.objects);
-  console.log('[showAddHeaterModal] window.premises:', window.premises);
-
-  const objectsHtml = window.objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
+  const objectsHtml = window.objects.map(o => `<option value="${o.uuid}" ${o.uuid == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   // Дата вывода по умолчанию (+10 лет от текущей даты)
   const defaultDecommission = new Date();
@@ -956,11 +970,16 @@ async function showAddHeaterModal() {
 
 async function loadNextStickerNumber() {
   try {
-    const stickers = await api('/stickers');
-    const maxNum = stickers.reduce((max, s) => {
-      const num = parseInt(s.number) || 0;
-      return num > max ? num : max;
-    }, 0);
+    // Получаем все наклейки из IndexedDB
+    const stickers = await Store.db.stickers.toArray();
+    
+    // Находим максимальный номер
+    let maxNum = 0;
+    for (const sticker of stickers) {
+      const num = parseInt(sticker.number) || 0;
+      if (num > maxNum) maxNum = num;
+    }
+    
     const nextNum = String(maxNum + 1).padStart(3, '0');
     const input = $('#sticker-number-input');
     if (input) {
@@ -1148,8 +1167,24 @@ async function handleAddHeater(e) {
   };
 
   try {
-    // Создаём через Store (с UUID и флагами синхронизации)
-    await Store.create('heaters', heaterData);
+    // Создаём обогреватель через Store (с UUID)
+    const result = await Store.create('heaters', heaterData);
+
+    // Создаём наклейку в IndexedDB
+    if (heaterData.sticker_number) {
+      await Store.db.stickers.add({
+        uuid: Store.generateUUIDSync(),
+        heater_uuid: result.uuid,
+        heater_id: result.id,
+        number: heaterData.sticker_number,
+        check_date: new Date().toISOString().split('T')[0],
+        electrician_id: currentUser?.id,
+        electrician_uuid: currentUser?.uuid,
+        created_at: new Date().toISOString(),
+        _sync_status: 'synced',
+        _modified: false
+      });
+    }
 
     // Обновляем window.heaters
     window.heaters = await Store.refreshHeaters();
@@ -1161,11 +1196,6 @@ async function handleAddHeater(e) {
     const msg = `Обогреватель "${heaterData.name}" сохранён`;
     if (window.AppLogs) AppLogs.info(msg);
     showToast(msg);
-
-    // Если онлайн — сразу синхронизируем
-    if (navigator.onLine) {
-      setTimeout(() => SyncManager.sync(), 1000);
-    }
   } catch (err) {
     console.error('[handleAddHeater] error:', err);
     const msg = `Ошибка: ${err.message}`;
@@ -1561,29 +1591,12 @@ async function handleEditHeater(e, id) {
     status: status
   };
 
-  const isOnline = navigator.onLine;
+  try {
+    // Обновляем через Store
+    await Store.update('heaters', id, data);
 
-  if (!isOnline) {
-    // Offline: update local cache immediately
-    const heaterIndex = window.heaters.findIndex(h => h.id === id || h.uuid === id);
-    if (heaterIndex !== -1) {
-      // Update local heater
-      const updatedHeater = { ...window.heaters[heaterIndex], ...data, updated_at: new Date().toISOString() };
-
-      // Update premise_name if premise changed
-      const selectedPremise = window.premises.find(p => 
-        String(p.uuid) === String(premiseUuid) || String(p.id) === String(premiseId)
-      );
-      if (selectedPremise) {
-        updatedHeater.premise_name = selectedPremise.name;
-      }
-
-      window.heaters[heaterIndex] = updatedHeater;
-      await Store.db.heaters.put(updatedHeater);
-    }
-
-    // Queue for sync через Store.update
-    await Store.update('heaters', id || window.heaters[heaterIndex]?.uuid, data);
+    // Обновляем window.heaters
+    window.heaters = await Store.refreshHeaters();
 
     // Close modal
     const modal = form.closest('.modal-overlay');
@@ -1591,38 +1604,13 @@ async function handleEditHeater(e, id) {
       modal.remove();
     }
 
-    // Refresh UI через refreshHeaters для обновления всех связанных данных
-    window.heaters = await Store.refreshHeaters();
     render();
     showToast('Изменения сохранены');
-  } else {
-    // Online: normal API call
-    try {
-      const response = await api(`/heaters/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-
-      // Close modal
-      const modal = form.closest('.modal-overlay');
-      if (modal) {
-        modal.remove();
-      }
-
-      // Refresh data
-      await loadLocalData();
-      render();
-
-      // Refresh heater detail card if open
-      if (selectedHeater && selectedHeater.id === id) {
-        await showHeaterDetail(id);
-      }
-
-      showToast('Изменения сохранены');
-    } catch (err) {
-      console.error('Save error:', err);
-      showToast('Ошибка: ' + err.message);
-    }
+  } catch (err) {
+    console.error('[handleEditHeater] error:', err);
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
@@ -2229,7 +2217,7 @@ async function handleAddObject(e) {
   };
 
   try {
-    // Создаём через Store (с UUID и флагами синхронизации)
+    // Создаём через Store (с UUID)
     await Store.create('objects', objectData);
 
     // Обновляем window.objects
@@ -2240,11 +2228,6 @@ async function handleAddObject(e) {
     const msg = `Объект "${objectData.name}" сохранён`;
     if (window.AppLogs) AppLogs.info(msg);
     showToast(msg);
-
-    // Если онлайн — сразу синхронизируем
-    if (navigator.onLine) {
-      setTimeout(() => SyncManager.sync(), 1000);
-    }
   } catch (err) {
     const msg = `Ошибка: ${err.message}`;
     if (window.AppLogs) AppLogs.error(msg);
@@ -2275,58 +2258,26 @@ function showEditObjectModal(objectId, name, code) {
 async function handleEditObject(e, objectId) {
   e.preventDefault();
   const form = e.target;
-  const isOnline = navigator.onLine;
 
   const objectData = {
     name: form.name.value,
     code: form.code.value || null
   };
 
-  if (!isOnline) {
-    // Offline: update IndexedDB
-    const objIndex = window.objects.findIndex(o => o.id === objectId || o.uuid === objectId);
-    if (objIndex !== -1) {
-      window.objects[objIndex] = { ...window.objects[objIndex], ...objectData };
-      await Store.db.objects.put(window.objects[objIndex]);
-    }
-
-    // Обновляем через Store для синхронизации
+  try {
+    // Обновляем через Store
     await Store.update('objects', objectId, objectData);
 
-    // Close modal
-    closeModal();
-    
-    // Refresh UI
+    // Обновляем window.objects
     window.objects = await Store.refreshObjects();
+
+    closeModal();
     render();
-    showToast('Обновлён');
-  } else {
-    // Online: API call
-    try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      };
-      
-      const response = await fetch(`/api/objects/${objectId}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(objectData)
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Ошибка обновления');
-      }
-      
-      closeModal();
-      showToast('Объект обновлён');
-      await loadAdminData();
-    } catch (err) {
-      console.error('[handleEditObject] error:', err);
-      showToast(err.message);
-    }
+    showToast('Объект обновлён');
+  } catch (err) {
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
@@ -2444,7 +2395,7 @@ async function handleAddPremise(e) {
   localStorage.setItem('last_object_id', premiseData.object_uuid);
 
   try {
-    // Создаём через Store (с UUID и флагами синхронизации)
+    // Создаём через Store (с UUID)
     await Store.create('premises', premiseData);
 
     // Обновляем window.premises
@@ -2455,11 +2406,6 @@ async function handleAddPremise(e) {
     const msg = `Помещение "${premiseData.name}" сохранено`;
     if (window.AppLogs) AppLogs.info(msg);
     showToast(msg);
-
-    // Если онлайн — сразу синхронизируем
-    if (navigator.onLine) {
-      setTimeout(() => SyncManager.sync(), 1000);
-    }
   } catch (err) {
     const msg = `Ошибка: ${err.message}`;
     if (window.AppLogs) AppLogs.error(msg);
@@ -2514,7 +2460,6 @@ function showEditPremiseModal(premiseId, name, number, type, objectId) {
 async function handleEditPremise(e, premiseId) {
   e.preventDefault();
   const form = e.target;
-  const isOnline = navigator.onLine;
 
   const premiseData = {
     object_uuid: form.object_id.value,
@@ -2523,43 +2468,20 @@ async function handleEditPremise(e, premiseId) {
     type: form.type.value
   };
 
-  if (!isOnline) {
-    // Offline: update IndexedDB
-    const premiseIndex = window.premises.findIndex(p => p.id === premiseId || p.uuid === premiseId);
-    if (premiseIndex !== -1) {
-      // Find object name for display
-      const selectedObject = window.objects.find(o => o.uuid === premiseData.object_uuid || o.id === premiseData.object_uuid);
-      window.premises[premiseIndex] = {
-        ...window.premises[premiseIndex],
-        ...premiseData,
-        object_name: selectedObject?.name || 'Unknown'
-      };
-      await Store.db.premises.put(window.premises[premiseIndex]);
-    }
-
-    // Обновляем через Store для синхронизации
+  try {
+    // Обновляем через Store
     await Store.update('premises', premiseId, premiseData);
 
-    // Close modal
-    closeModal();
-    
-    // Refresh UI
+    // Обновляем window.premises
     window.premises = await Store.refreshPremises();
+
+    closeModal();
     render();
-    showToast('Обновлено');
-  } else {
-    // Online: API call
-    try {
-      await api(`/premises/${premiseId}`, {
-        method: 'PUT',
-        body: JSON.stringify(premiseData)
-      });
-      closeModal();
-      showToast('Помещение обновлено');
-      loadAdminData();
-    } catch (err) {
-      showToast(err.message);
-    }
+    showToast('Помещение обновлено');
+  } catch (err) {
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
