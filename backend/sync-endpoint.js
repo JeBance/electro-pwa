@@ -258,7 +258,9 @@ async function getServerUpdates(client, lastSyncTime) {
 
 // Основной endpoint
 async function setupSyncEndpoint(router) {
-  router.post('/sync', async (req, res) => {
+  const { authMiddleware } = require('./auth');
+  
+  router.post('/sync', authMiddleware(), async (req, res) => {
     const client = await getClient();
     
     try {
