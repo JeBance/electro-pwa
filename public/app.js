@@ -216,15 +216,9 @@ async function apiMutate(endpoint, options, headers) {
 // ===== AUTH =====
 async function login(loginVal, password) {
   try {
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-
     const res = await fetch(`${API_BASE}/api/login`, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login: loginVal, password })
     });
 
@@ -236,13 +230,22 @@ async function login(loginVal, password) {
     const data = await res.json();
     localStorage.setItem('token', data.token);
     currentUser = data.user;
+    
+    if (window.AppLogs) AppLogs.success(`Пользователь ${data.user.login} вошёл в систему`);
 
     // Загружаем данные с сервера после входа
-    await Store.syncFromServer();
+    await loadLocalData();
+    
+    // Синхронизируем с сервером
+    if (navigator.onLine) {
+      await SyncManager.sync();
+    }
 
     showToast('Вход выполнен');
     setView('heaters');
   } catch (err) {
+    console.error('[Login] error:', err);
+    if (window.AppLogs) AppLogs.error(`Ошибка входа: ${err.message}`);
     showToast(err.message || 'Ошибка входа');
     throw err;
   }
@@ -2417,16 +2420,22 @@ async function updateSyncStatus() {
   const isOnline = navigator.onLine;
   const el = $('#sync-status');
   if (el) {
-    // Get pending operations count
-    const pendingCount = await Store.db.syncQueue.count();
+    // Get pending records count from all tables
+    const tables = ['heaters', 'premises', 'objects'];
+    let pendingCount = 0;
     
+    for (const table of tables) {
+      const pending = await Store.getPending(table);
+      pendingCount += pending.length;
+    }
+
     if (!isOnline) {
-      el.textContent = pendingCount > 0 
-        ? `🔴 Офлайн (${pendingCount} в очереди)` 
+      el.textContent = pendingCount > 0
+        ? `🔴 Офлайн (${pendingCount} ожидает)`
         : '🔴 Офлайн';
     } else {
-      el.textContent = pendingCount > 0 
-        ? `🟡 Синхронизация (${pendingCount})` 
+      el.textContent = pendingCount > 0
+        ? `🟡 Синхронизация (${pendingCount})`
         : '🟢 Онлайн';
     }
   }
@@ -2436,7 +2445,7 @@ async function updateSyncStatus() {
 async function init() {
   // Initialize sync manager
   if (typeof SyncManager !== 'undefined') {
-    SyncManager.init(db);
+    SyncManager.init();
   }
 
   if (checkAuth()) {
@@ -2451,7 +2460,7 @@ async function init() {
   window.addEventListener('online', () => {
     showToast('🟢 Онлайн');
     render();
-    SyncManager.syncQueue();  // Sync any pending operations
+    SyncManager.sync();  // Sync any pending operations
     updateSyncStatus();
     // Refresh data from server
     loadLocalData();
@@ -2466,6 +2475,7 @@ async function init() {
 
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 initApp();
+init();
 
 // Make functions globally accessible for onclick handlers
 window.showUserObjectsModal = showUserObjectsModal;
