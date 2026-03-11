@@ -25,7 +25,7 @@ function generateUUIDSync(timestamp = Date.now()) {
 async function syncTable(client, userId, table, records, idMapping) {
   const results = [];
   const config = getTableConfig(table);
-  
+
   if (!config) {
     console.log(`[Sync] Unknown table: ${table}`);
     return results;
@@ -40,6 +40,25 @@ async function syncTable(client, userId, table, records, idMapping) {
     }
 
     try {
+      // Разрешаем ссылки через idMapping (если uuid ещё не создан на сервере)
+      if (table === 'premises' && record.object_uuid) {
+        // Проверяем есть ли object в idMapping
+        if (idMapping.objects && idMapping.objects[record.object_uuid]) {
+          record.object_id = idMapping.objects[record.object_uuid];
+        }
+      }
+      
+      if (table === 'heaters') {
+        // Разрешаем premise_uuid
+        if (record.premise_uuid && idMapping.premises && idMapping.premises[record.premise_uuid]) {
+          record.premise_id = idMapping.premises[record.premise_uuid];
+        }
+        // Разрешаем object_uuid
+        if (record.object_uuid && idMapping.objects && idMapping.objects[record.object_uuid]) {
+          // object_id для heaters не используется напрямую, но можно сохранить
+        }
+      }
+
       // Проверяем, есть ли запись с таким UUID
       const existing = await client.query(
         `SELECT id FROM ${config.tableName} WHERE uuid = $1`,
@@ -56,11 +75,11 @@ async function syncTable(client, userId, table, records, idMapping) {
         // Создаём новую запись
         const result = await createRecord(client, config, record, userId);
         const serverId = result.id;
-        
+
         // Сохраняем маппинг UUID → server ID
         if (!idMapping[table]) idMapping[table] = {};
         idMapping[table][record.uuid] = serverId;
-        
+
         results.push({ uuid: record.uuid, id: serverId, action: 'created', success: true });
         console.log(`[Sync] Created ${table}:${record.uuid} (id=${serverId})`);
       }
@@ -162,18 +181,20 @@ async function createRecord(client, config, record, userId) {
   for (const field of validFields) {
     let value = record[field];
 
-    // Разрешаем ссылки на другие таблицы по UUID
-    const uuidField = field.replace('_id', '_uuid');
-    if (config.resolveRefs[uuidField]) {
-      const refConfig = config.resolveRefs[uuidField];
-      const refUuid = record[uuidField];
-      if (refUuid) {
-        // Ищем ID по UUID
-        const refResult = await client.query(
-          `SELECT ${refConfig.field} FROM ${refConfig.table} WHERE uuid = $1`,
-          [refUuid]
-        );
-        value = refResult.rows.length > 0 ? refResult.rows[0][refConfig.field] : null;
+    // Сначала проверяем есть ли уже resolved ID (из idMapping)
+    if (value === null || value === undefined) {
+      const uuidField = field.replace('_id', '_uuid');
+      if (config.resolveRefs[uuidField]) {
+        const refConfig = config.resolveRefs[uuidField];
+        const refUuid = record[uuidField];
+        if (refUuid) {
+          // Ищем ID по UUID
+          const refResult = await client.query(
+            `SELECT ${refConfig.field} FROM ${refConfig.table} WHERE uuid = $1`,
+            [refUuid]
+          );
+          value = refResult.rows.length > 0 ? refResult.rows[0][refConfig.field] : null;
+        }
       }
     }
 
