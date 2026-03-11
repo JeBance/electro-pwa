@@ -1480,10 +1480,7 @@ async function handleEditHeater(e, id) {
   e.preventDefault();
   e.stopPropagation();
 
-  console.log('handleEditHeater called with id:', id);
-
   const form = e.target.closest('form');
-  console.log('Form element:', form);
 
   if (!form) {
     console.error('Form not found');
@@ -1491,11 +1488,11 @@ async function handleEditHeater(e, id) {
   }
 
   const status = form.status?.value;
-  let premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
+  let premiseId = form.premise_id?.value ? form.premise_id.value : null;
 
   // Если статус "Перемещён", используем новое помещение
   if (status === 'moved' && form.move_premise_id?.value) {
-    premiseId = parseInt(form.move_premise_id.value);
+    premiseId = form.move_premise_id.value;
   }
 
   // Если статус "На складе", убираем помещение
@@ -1503,8 +1500,21 @@ async function handleEditHeater(e, id) {
     premiseId = null;
   }
 
+  // Находим UUID помещения если оно выбрано
+  let premiseUuid = null;
+  if (premiseId) {
+    const selectedPremise = window.premises.find(p => 
+      String(p.uuid) === String(premiseId) || String(p.id) === String(premiseId)
+    );
+    if (selectedPremise) {
+      premiseUuid = selectedPremise.uuid;
+      premiseId = selectedPremise.id; // Используем реальный ID
+    }
+  }
+
   const data = {
-    premise_id: premiseId,
+    premise_uuid: premiseUuid,
+    premise_id: premiseId ? parseInt(premiseId) : null,
     name: form.name?.value,
     serial: form.serial?.value || null,
     voltage_v: parseInt(form.voltage_v?.value) || 220,
@@ -1516,19 +1526,19 @@ async function handleEditHeater(e, id) {
     status: status
   };
 
-  console.log('Saving heater:', id, data);
-
   const isOnline = navigator.onLine;
 
   if (!isOnline) {
     // Offline: update local cache immediately
-    const heaterIndex = window.heaters.findIndex(h => h.id === id);
+    const heaterIndex = window.heaters.findIndex(h => h.id === id || h.uuid === id);
     if (heaterIndex !== -1) {
       // Update local heater
       const updatedHeater = { ...window.heaters[heaterIndex], ...data, updated_at: new Date().toISOString() };
 
       // Update premise_name if premise changed
-      const selectedPremise = window.premises.find(p => p.id === premiseId);
+      const selectedPremise = window.premises.find(p => 
+        String(p.uuid) === String(premiseUuid) || String(p.id) === String(premiseId)
+      );
       if (selectedPremise) {
         updatedHeater.premise_name = selectedPremise.name;
       }
@@ -1536,25 +1546,19 @@ async function handleEditHeater(e, id) {
       window.heaters[heaterIndex] = updatedHeater;
       await Store.db.heaters.put(updatedHeater);
     }
-    
-    // Queue for sync
-    await Store.db.syncQueue.add({
-      action: `/heaters/${id}`,
-      endpoint: `/heaters/${id}`,
-      method: 'PUT',
-      data: data,
-      timestamp: Date.now()
-    });
-    
+
+    // Queue for sync через Store.update
+    await Store.update('heaters', id || window.heaters[heaterIndex]?.uuid, data);
+
     // Close modal
     const modal = form.closest('.modal-overlay');
     if (modal) {
       modal.remove();
     }
-    
+
     // Refresh UI
     render();
-    showToast('Изменения сохранены (синхронизация при подключении)');
+    showToast('Изменения сохранены');
   } else {
     // Online: normal API call
     try {
@@ -1563,19 +1567,10 @@ async function handleEditHeater(e, id) {
         body: JSON.stringify(data)
       });
 
-      console.log('Save response:', response);
-
-      // Close modal - find and remove the overlay
+      // Close modal
       const modal = form.closest('.modal-overlay');
       if (modal) {
         modal.remove();
-        console.log('Modal removed via form.closest');
-      } else {
-        const fallbackModal = document.querySelector('.modal-overlay');
-        if (fallbackModal) {
-          fallbackModal.remove();
-          console.log('Modal removed via querySelector');
-        }
       }
 
       // Refresh data
