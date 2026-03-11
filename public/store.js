@@ -232,13 +232,43 @@ const Store = {
   // ===== МАССИВЫ ДЛЯ UI (кэш в памяти) =====
   async refreshHeaters() {
     const items = await this.getAll('heaters');
-    window.heaters = items.filter(h => !h.deleted_at);
+    const premises = await this.getAll('premises');
+    
+    // Создаём мапу UUID -> premise
+    const premiseMap = new Map();
+    premises.forEach(p => premiseMap.set(p.uuid, p));
+    
+    // Обновляем обогреватели: добавляем premise_id из UUID
+    window.heaters = items.filter(h => !h.deleted_at).map(h => {
+      const premise = premiseMap.get(h.premise_uuid);
+      return {
+        ...h,
+        premise_id: premise?.id || h.premise_id,
+        premise_name: premise?.name || h.premise_name
+      };
+    });
+    
     return window.heaters;
   },
 
   async refreshPremises() {
     const items = await this.getAll('premises');
-    window.premises = items.filter(p => !p.deleted_at);
+    const objects = await this.getAll('objects');
+    
+    // Создаём мапу UUID -> object
+    const objectMap = new Map();
+    objects.forEach(o => objectMap.set(o.uuid, o));
+    
+    // Обновляем помещения: добавляем object_id из UUID
+    window.premises = items.filter(p => !p.deleted_at).map(p => {
+      const obj = objectMap.get(p.object_uuid);
+      return {
+        ...p,
+        object_id: obj?.id || p.object_id,
+        object_name: obj?.name || p.object_name
+      };
+    });
+    
     return window.premises;
   },
 

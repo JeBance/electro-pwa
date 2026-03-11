@@ -2178,7 +2178,7 @@ async function showAddPremiseModal() {
     await loadLocalData();
   }
   const lastObjectId = localStorage.getItem('last_object_id') || '';
-  const objectsHtml = window.objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
+  const objectsHtml = window.objects.map(o => `<option value="${o.uuid}" ${o.uuid == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   showModal(`
     <div class="modal-header">
@@ -2187,7 +2187,7 @@ async function showAddPremiseModal() {
     </div>
     <form onsubmit="handleAddPremise(event)">
       <div class="input-group">
-        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
+        <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value)">
           <option value="">Объект</option>
           ${objectsHtml}
         </select>
@@ -2214,65 +2214,45 @@ async function handleAddPremise(e) {
   e.preventDefault();
   const form = e.target;
 
-  const isOnline = navigator.onLine;
   const objectId = form.object_id.value;
 
   // Find object in array or IndexedDB (for offline-created objects)
-  let selectedObject = window.objects.find(o => o.id === objectId);
+  let selectedObject = window.objects.find(o => o.id === objectId || o.uuid === objectId);
   if (!selectedObject) {
     selectedObject = await Store.db.objects.get(objectId);
   }
 
   const premiseData = {
-    object_id: objectId,
+    object_uuid: selectedObject?.uuid || objectId,
     name: form.name.value,
     number: form.number.value || null,
     type: form.type.value
   };
 
   // Сохраняем последний выбранный объект
-  localStorage.setItem('last_object_id', premiseData.object_id);
+  localStorage.setItem('last_object_id', premiseData.object_uuid);
 
-  if (!isOnline) {
-    // Offline: create optimistic record in cache
-    const newPremise = {
-      id: 'local_' + Date.now(),
-      ...premiseData,
-      object_name: selectedObject?.name || 'Unknown'
-    };
-
-    // Add to local cache immediately
-    await Store.db.premises.add(newPremise);
+  try {
+    // Создаём через Store (с UUID и флагами синхронизации)
+    await Store.create('premises', premiseData);
 
     // Обновляем window.premises
     window.premises = await Store.refreshPremises();
 
-    // Queue for sync
-    await Store.db.syncQueue.add({
-      action: '/premises',
-      endpoint: '/premises',
-      method: 'POST',
-      data: premiseData,
-      timestamp: Date.now(),
-      localId: newPremise.id
-    });
-
     closeModal();
     render();
-    showToast('Помещение добавлено (ожидает сети)');
-  } else {
-    // Online: normal API call
-    try {
-      await api('/premises', {
-        method: 'POST',
-        body: JSON.stringify(premiseData)
-      });
-      closeModal();
-      showToast('Помещение добавлено');
-      loadAdminData();
-    } catch (err) {
-      showToast(err.message);
+    const msg = `Помещение "${premiseData.name}" сохранено`;
+    if (window.AppLogs) AppLogs.info(msg);
+    showToast(msg);
+
+    // Если онлайн — сразу синхронизируем
+    if (navigator.onLine) {
+      setTimeout(() => SyncManager.sync(), 1000);
     }
+  } catch (err) {
+    const msg = `Ошибка: ${err.message}`;
+    if (window.AppLogs) AppLogs.error(msg);
+    showToast(msg);
   }
 }
 
