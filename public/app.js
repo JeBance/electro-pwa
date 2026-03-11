@@ -1556,7 +1556,8 @@ async function handleEditHeater(e, id) {
       modal.remove();
     }
 
-    // Refresh UI
+    // Refresh UI через refreshHeaters для обновления всех связанных данных
+    window.heaters = await Store.refreshHeaters();
     render();
     showToast('Изменения сохранены');
   } else {
@@ -2118,23 +2119,22 @@ async function handleEditObject(e, objectId) {
 
   if (!isOnline) {
     // Offline: update IndexedDB
-    const objIndex = window.objects.findIndex(o => o.id === objectId);
+    const objIndex = window.objects.findIndex(o => o.id === objectId || o.uuid === objectId);
     if (objIndex !== -1) {
-      objects[objIndex] = { ...objects[objIndex], ...objectData };
-      await Store.db.objects.put(objects[objIndex]);
+      window.objects[objIndex] = { ...window.objects[objIndex], ...objectData };
+      await Store.db.objects.put(window.objects[objIndex]);
     }
 
-    await Store.db.syncQueue.add({
-      action: `/objects/${objectId}`,
-      endpoint: `/objects/${objectId}`,
-      method: 'PUT',
-      data: objectData,
-      timestamp: Date.now()
-    });
+    // Обновляем через Store для синхронизации
+    await Store.update('objects', objectId, objectData);
 
+    // Close modal
     closeModal();
+    
+    // Refresh UI
+    window.objects = await Store.refreshObjects();
     render();
-    showToast('Обновлён (ожидает сети)');
+    showToast('Обновлён');
   } else {
     // Online: API call
     try {
@@ -2311,7 +2311,7 @@ async function handleEditPremise(e, premiseId) {
   const isOnline = navigator.onLine;
 
   const premiseData = {
-    object_id: form.object_id.value,
+    object_uuid: form.object_id.value,
     name: form.name.value,
     number: form.number.value || null,
     type: form.type.value
@@ -2319,29 +2319,28 @@ async function handleEditPremise(e, premiseId) {
 
   if (!isOnline) {
     // Offline: update IndexedDB
-    const premiseIndex = window.premises.findIndex(p => p.id === premiseId);
+    const premiseIndex = window.premises.findIndex(p => p.id === premiseId || p.uuid === premiseId);
     if (premiseIndex !== -1) {
       // Find object name for display
-      const selectedObject = window.objects.find(o => o.id === premiseData.object_id) || await Store.db.objects.get(premiseData.object_id);
-      premises[premiseIndex] = { 
-        ...premises[premiseIndex], 
+      const selectedObject = window.objects.find(o => o.uuid === premiseData.object_uuid || o.id === premiseData.object_uuid);
+      window.premises[premiseIndex] = {
+        ...window.premises[premiseIndex],
         ...premiseData,
         object_name: selectedObject?.name || 'Unknown'
       };
-      await Store.db.premises.put(premises[premiseIndex]);
+      await Store.db.premises.put(window.premises[premiseIndex]);
     }
 
-    await Store.db.syncQueue.add({
-      action: `/premises/${premiseId}`,
-      endpoint: `/premises/${premiseId}`,
-      method: 'PUT',
-      data: premiseData,
-      timestamp: Date.now()
-    });
+    // Обновляем через Store для синхронизации
+    await Store.update('premises', premiseId, premiseData);
 
+    // Close modal
     closeModal();
+    
+    // Refresh UI
+    window.premises = await Store.refreshPremises();
     render();
-    showToast('Обновлено (ожидает сети)');
+    showToast('Обновлено');
   } else {
     // Online: API call
     try {
