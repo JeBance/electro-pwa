@@ -1,130 +1,133 @@
-// Sync queue management for offline operations
+// sync.js - Упрощённая синхронизация на основе UUID
+// Отправляет все pending/modified записи и получает обновления с сервера
+
 const SyncManager = {
-  db: null,
+  isSyncing: false,
 
-  async init(db) {
-    this.db = db;
-  },
-
-  async add(operation) {
-    if (!this.db) throw new Error('DB not initialized');
-
-    await this.db.syncQueue.add({
-      action: operation.endpoint,
-      endpoint: operation.endpoint,
-      method: operation.method,
-      data: operation.data,
-      timestamp: Date.now(),
-      synced: false
-    });
-
-    console.log('Operation queued:', operation.endpoint, 'Total pending:', await this.db.syncQueue.count());
-
-    // Try to sync if online
-    if (navigator.onLine) {
-      this.sync();
-    }
-  },
-
+  // Основная функция синхронизации
   async sync() {
+    if (this.isSyncing) {
+      console.log('[Sync] Already syncing, skipping...');
+      return { skipped: true, reason: 'already-syncing' };
+    }
+
     if (!navigator.onLine) {
-      console.log('Sync skipped: offline');
-      return;
+      const msg = 'Офлайн — синхронизация невозможна';
+      console.log('[Sync]', msg);
+      if (window.AppLogs) AppLogs.info(msg);
+      return { skipped: true, reason: 'offline' };
     }
-
-    const operations = await this.db.syncQueue.toArray();
-    if (operations.length === 0) {
-      console.log('Sync skipped: queue empty');
-      return;
-    }
-
-    console.log('Sync starting:', operations.length, 'operations');
 
     const token = localStorage.getItem('token');
     if (!token) {
-      console.log('Sync skipped: no token');
-      return;
+      const msg = 'Нет токена авторизации';
+      console.log('[Sync]', msg);
+      if (window.AppLogs) AppLogs.error(msg);
+      return { skipped: true, reason: 'no-token' };
     }
 
+    this.isSyncing = true;
+
     try {
+      // Получаем все записи, ожидающие синхронизации
+      const payload = await Store.getSyncPayload();
+      
+      if (Object.keys(payload).length === 0 || (Object.keys(payload).length === 1 && payload.lastSyncTime)) {
+        console.log('[Sync] Нет изменений для отправки');
+        // Всё равно загружаем обновления с сервера
+        payload.empty = true;
+      }
+
+      const msg = `Синхронизация... (${Object.keys(payload).filter(k => k !== 'lastSyncTime' && k !== 'empty').length} таблиц)`;
+      console.log('[Sync]', msg);
+      if (window.AppLogs) AppLogs.info(msg);
+
+      // Отправляем на сервер
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ operations })
+        body: JSON.stringify(payload)
       });
 
-      console.log('Sync response status:', response.status);
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Sync completed:', result);
-        
-        // Update local records with server IDs
-        if (result.idMapping) {
-          for (const [localId, serverId] of Object.entries(result.idMapping)) {
-            console.log('Updating local ID', localId, 'to server ID', serverId);
-            
-            // Get the local heater first
-            const heater = await this.db.heaters.get(localId);
-            if (heater) {
-              // Delete the old local record
-              await this.db.heaters.delete(localId);
-              // Create new record with server ID (use add to preserve the ID)
-              delete heater.id;  // Remove id to let add() use the one we specify
-              await this.db.heaters.add({ ...heater, id: serverId });
-              console.log('Updated heater', localId, '→', serverId);
-            } else {
-              console.log('Heater not found for local ID', localId, '- may already be synced');
-            }
-            
-            // Update stickers table if heater was updated
-            const stickers = await this.db.stickers.where('heater_id').equals(localId).toArray();
-            for (const sticker of stickers) {
-              await this.db.stickers.delete(sticker.id);
-              await this.db.stickers.put({ ...sticker, heater_id: serverId });
-            }
-            
-            // Update events table if heater was updated
-            const events = await this.db.events.where('heater_id').equals(localId).toArray();
-            for (const event of events) {
-              await this.db.events.delete(event.id);
-              await this.db.events.put({ ...event, heater_id: serverId });
-            }
-          }
-        }
-        
-        // Refresh all data after successful sync
-        if (typeof loadData === 'function') {
-          loadData();
-        }
-        
-        await this.db.syncQueue.clear();
-        console.log('Sync queue cleared');
-      } else {
-        const errorText = await response.text();
-        console.error('Sync failed with status:', response.status, errorText);
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
       }
+
+      const result = await response.json();
+      console.log('[Sync] Server response:', result);
+
+      // Применяем ответ сервера к локальным данным
+      if (result.data) {
+        const syncedCount = await Store.applyServerResponse(result.data);
+        const successMsg = `Синхронизировано: ${syncedCount} записей`;
+        console.log('[Sync]', successMsg);
+        if (window.AppLogs) AppLogs.success(successMsg);
+      }
+
+      // Обновляем UI
+      if (typeof loadLocalData === 'function') {
+        await loadLocalData();
+      }
+      if (typeof render === 'function') {
+        render();
+      }
+
+      return { 
+        success: true, 
+        synced: result.synced || 0,
+        serverRecords: result.data 
+      };
     } catch (err) {
-      console.error('Sync failed with error:', err);
+      const msg = `Ошибка синхронизации: ${err.message}`;
+      console.error('[Sync]', msg);
+      if (window.AppLogs) AppLogs.error(msg);
+      
+      // Помечаем все pending записи как failed
+      await this.markAllFailed(err.message);
+      
+      return { error: err.message };
+    } finally {
+      this.isSyncing = false;
     }
   },
 
-  async getPendingCount() {
-    if (!this.db) return 0;
-    return await this.db.syncQueue.count();
+  // Пометить все pending записи как failed при ошибке
+  async markAllFailed(error) {
+    const tables = ['heaters', 'premises', 'objects', 'users', 'stickers', 'events'];
+    for (const table of tables) {
+      const pending = await Store.getPending(table);
+      for (const record of pending) {
+        await Store.markSyncError(table, record.uuid, error);
+      }
+    }
+  },
+
+  // Принудительная синхронизация (игнорируя lastSyncTime)
+  async forceSync() {
+    console.log('[Sync] Force sync...');
+    return await this.sync();
+  },
+
+  // Авто-синхронизация при появлении интернета
+  init() {
+    window.addEventListener('online', () => {
+      console.log('[Sync] Онлайн, запускаем синхронизацию');
+      this.sync();
+    });
+
+    // Периодическая синхронизация каждые 60 секунд
+    setInterval(() => {
+      if (navigator.onLine && !this.isSyncing) {
+        this.sync();
+      }
+    }, 60000);
   }
 };
 
-// Auto-sync on online event
-window.addEventListener('online', () => {
-  console.log('Online event - triggering sync');
-  SyncManager.sync();
-});
-
-// Export
+// Экспорт
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = SyncManager;
 }

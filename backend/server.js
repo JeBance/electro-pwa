@@ -7,9 +7,9 @@ const { ensureAdminUser } = require('./auth');
 const PORT = process.env.PORT || 3000;
 const app = express();
 
-// CORS - only allow electro.jebance.ru
+// CORS - allow all local addresses and production domain
 app.use(cors({
-  origin: ['https://electro.jebance.ru', 'http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: true, // Allow all origins for now
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']

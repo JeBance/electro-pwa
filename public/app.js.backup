@@ -17,30 +17,15 @@ const API_BASE = '';
 async function initApp() {
   Store.init();
   SyncManager.init();
-
-  // Записываем лог инициализации
-  if (window.AppLogs) AppLogs.info('Приложение запущено');
-
-  // Проверяем авторизацию
-  if (checkAuth()) {
-    currentUser = checkAuth();
-    if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser.login} авторизован`);
-
-    // Сначала загружаем из IndexedDB (мгновенный UI)
-    await loadLocalData();
-    if (window.AppLogs) AppLogs.info('Данные загружены из IndexedDB');
-
-    // Потом синхронизируем с сервером в фоне
-    if (navigator.onLine) {
-      if (window.AppLogs) AppLogs.info('Начало синхронизации с сервером...');
-      await SyncManager.sync();
-    } else {
-      if (window.AppLogs) AppLogs.warn('Работа в оффлайн режиме');
-    }
-  } else {
-    if (window.AppLogs) AppLogs.info('Пользователь не авторизован');
+  
+  // Загружаем данные из IndexedDB
+  await loadLocalData();
+  
+  // Фоновая синхронизация с сервером
+  if (navigator.onLine) {
+    await Store.syncFromServer();
   }
-
+  
   render();
 }
 
@@ -237,8 +222,8 @@ async function login(loginVal, password) {
     localStorage.setItem('token', data.token);
     currentUser = data.user;
 
-    // Загружаем данные с сервера после входа
-    await Store.syncFromServer();
+    // Загружаем данные после входа
+    await loadLocalData();
 
     showToast('Вход выполнен');
     setView('heaters');
@@ -324,7 +309,7 @@ function renderPremisesView() {
   const premiseMap = new Map();
   const warehouseHeaters = [];
 
-  window.heaters.forEach(h => {
+  heaters.forEach(h => {
     if (h.status === 'warehouse') {
       warehouseHeaters.push(h);
     } else {
@@ -346,7 +331,7 @@ function renderPremisesView() {
   }
 
   // Group by known premises
-  window.premises.forEach(p => {
+  premises.forEach(p => {
     const items = premiseMap.get(p.id) || [];
     if (items.length === 0) return;
 
@@ -374,7 +359,7 @@ function renderPremisesView() {
   premiseMap.forEach((items, key) => {
     // Skip if already rendered (key is 0 or known premise ID)
     if (key === 0) return;
-    const knownPremise = window.premises.find(p => p.id === key);
+    const knownPremise = premises.find(p => p.id === key);
     if (knownPremise) return;
 
     // This is an offline-created premise - show with premise_name from heater
@@ -431,21 +416,11 @@ function getHeaterIcon(protectionType) {
 function renderHeaterItem(h) {
   const sticker = h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span> ` : '';
   const icon = getHeaterIcon(h.protection_type);
-  const heaterId = String(h.id).startsWith('local_') ? `'${h.id}'` : h.id;
-  
-  // Индикатор синхронизации
-  let syncIndicator = '';
-  if (h._sync_status === 'pending' || h._modified) {
-    syncIndicator = '<span class="sync-indicator pending" title="Ожидает синхронизации">⏳</span>';
-  } else if (h._sync_status === 'failed') {
-    syncIndicator = '<span class="sync-indicator failed" title="Ошибка синхронизации">❌</span>';
-  }
-  
   return `
-    <div class="list-item" onclick="showHeaterDetail(${heaterId})">
+    <div class="list-item" onclick="showHeaterDetail(${h.id})">
       <div class="list-item-icon">${icon}</div>
       <div class="list-item-content">
-        <div class="list-item-title">${sticker}${h.name} ${syncIndicator}</div>
+        <div class="list-item-title">${sticker}${h.name}</div>
         <div class="list-item-subtitle">${h.serial || 'Б/Н'} • ${h.power_w ? h.power_w + ' Вт' : ''}</div>
       </div>
       ${getStatusBadge(h.status)}
@@ -600,114 +575,8 @@ function renderAdmin() {
   `;
 }
 
-// ===== ЛОГИРОВАНИЕ =====
-const AppLogs = {
-  logs: [],
-  maxLogs: 100,
-
-  add(message, type = 'info') {
-    const log = {
-      timestamp: new Date().toISOString(),
-      message,
-      type
-    };
-    this.logs.unshift(log);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.pop();
-    }
-    console.log(`[${type.toUpperCase()}] ${message}`);
-  },
-
-  info(message) {
-    this.add(message, 'info');
-  },
-
-  success(message) {
-    this.add(message, 'success');
-  },
-
-  error(message) {
-    this.add(message, 'error');
-  },
-
-  warn(message) {
-    this.add(message, 'warn');
-  },
-
-  getLogs() {
-    return this.logs;
-  },
-
-  clear() {
-    this.logs = [];
-  },
-
-  render() {
-    const typeIcons = {
-      info: 'ℹ️',
-      success: '✅',
-      error: '❌',
-      warn: '⚠️'
-    };
-
-    const typeColors = {
-      info: '#666',
-      success: '#4caf50',
-      error: '#f44336',
-      warn: '#ff9800'
-    };
-
-    if (this.logs.length === 0) {
-      return `
-        <div class="logs-container">
-          <div class="logs-header">
-            <span>📋 Журнал операций</span>
-            <span class="logs-count">0 записей</span>
-          </div>
-          <div class="empty-state" style="padding: 20px;">
-            <div class="empty-state-text">Нет записей</div>
-          </div>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="logs-container">
-        <div class="logs-header">
-          <span>📋 Журнал операций</span>
-          <span class="logs-count">${this.logs.length} записей</span>
-        </div>
-        <div class="logs-list">
-          ${this.logs.map(log => {
-            const date = new Date(log.timestamp);
-            const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const icon = typeIcons[log.type] || 'ℹ️';
-            const color = typeColors[log.type] || '#666';
-            return `
-              <div class="log-item log-item-${log.type}">
-                <span class="log-icon" style="color: ${color}">${icon}</span>
-                <div class="log-content">
-                  <div class="log-message">${log.message}</div>
-                  <div class="log-time">${timeStr}</div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-        <button class="btn btn-secondary btn-small" onclick="AppLogs.clear(); renderProfile();" style="margin-top: 10px; width: 100%">🗑️ Очистить логи</button>
-      </div>
-    `;
-  }
-};
-
-// Глобальный доступ
-window.AppLogs = AppLogs;
-
 function renderProfile() {
   const isOnline = navigator.onLine;
-  const logs = AppLogs.getLogs();
-  const errorCount = logs.filter(l => l.type === 'error').length;
-  const pendingCount = logs.filter(l => l.message.includes('ожидает') || l.message.includes('очередь')).length;
 
   return `
     <div class="profile-header">
@@ -729,17 +598,8 @@ function renderProfile() {
         <button class="btn btn-secondary btn-small" onclick="forceSync()">🔄 Синхронизировать</button>
       </div>
       ` : ''}
-      <div class="settings-item" onclick="showQueueDetails()" style="cursor: pointer;">
-        <span class="settings-item-label">Операций в очереди</span>
-        <span style="color: ${pendingCount > 0 ? 'var(--accent-orange)' : 'inherit'}">${pendingCount > 0 ? pendingCount : '—'}</span>
-      </div>
-      <div class="settings-item">
-        <span class="settings-item-label">Ошибок</span>
-        <span style="color: ${errorCount > 0 ? '#f44336' : 'inherit'}">${errorCount > 0 ? errorCount : '—'}</span>
-      </div>
       <button class="btn btn-danger" onclick="logout()" style="margin-top:20px">Выйти</button>
     </div>
-    ${AppLogs.render()}
   `;
 }
 
@@ -828,19 +688,16 @@ function closeModal() {
   if (modal) modal.remove();
 }
 
-async function showAddHeaterModal() {
+function showAddHeaterModal() {
   const lastObjectId = localStorage.getItem('last_object_id') || '';
   const lastPremiseId = localStorage.getItem('last_premise_id') || '';
-
-  // Загружаем объекты и помещения из IndexedDB если пустые
-  if (window.objects.length === 0 || window.premises.length === 0) {
-    await loadLocalData();
+  
+  // Load objects and premises if not available
+  if (objects.length === 0 || premises.length === 0) {
+    loadData();
   }
-
-  console.log('[showAddHeaterModal] window.objects:', window.objects);
-  console.log('[showAddHeaterModal] window.premises:', window.premises);
-
-  const objectsHtml = window.objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
+  
+  const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   // Дата вывода по умолчанию (+10 лет от текущей даты)
   const defaultDecommission = new Date();
@@ -971,7 +828,7 @@ function toggleMoveField(status) {
       select.required = true;
       // Заполняем список помещений
       const currentObjectId = localStorage.getItem('last_object_id');
-      const filtered = window.premises.filter(p => !currentObjectId || p.object_id == currentObjectId);
+      const filtered = premises.filter(p => !currentObjectId || p.object_id == currentObjectId);
       select.innerHTML = '<option value="">Выберите помещение</option>' +
         filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     } else {
@@ -990,7 +847,7 @@ function toggleEditMoveField(status, currentPremiseId) {
       group.style.display = 'block';
       select.required = true;
       // Не показываем текущее помещение в списке
-      const filtered = window.premises.filter(p => p.id !== currentPremiseId);
+      const filtered = premises.filter(p => p.id !== currentPremiseId);
       select.innerHTML = '<option value="">Выберите помещение</option>' +
         filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     } else {
@@ -1024,26 +881,27 @@ function updateEditDecommissionDate(manufactureDate) {
 function updatePremisesSelect(objectId, lastPremiseId = '') {
   const select = document.getElementById('premise-select');
   if (!select) {
+    console.error('premise-select element not found');
     return;
   }
-
+  
   if (!objectId) {
     select.innerHTML = '<option value="">Сначала выберите объект</option>';
     return;
   }
-
-  const filtered = window.premises.filter(p => String(p.object_id) === String(objectId));
+  
+  const filtered = premises.filter(p => p.object_id == objectId);
   let html = '<option value="">Без помещения (на склад)</option>';
-
+  
   if (filtered.length > 0) {
     html += filtered.map(p => {
-      const isSelected = String(p.id) === String(lastPremiseId) ? 'selected' : '';
+      const isSelected = p.id == lastPremiseId ? 'selected' : '';
       return `<option value="${p.id}" ${isSelected}>${p.name}</option>`;
     }).join('');
   }
-
+  
   select.innerHTML = html;
-
+  
   // Auto-update status based on premise selection
   updatePremiseStatus();
 }
@@ -1075,7 +933,7 @@ async function handleAddHeater(e) {
     return;
   }
 
-  const objectId = form.object_id?.value;
+  const objectId = parseInt(form.object_id?.value);
   if (!objectId) {
     showToast('Выберите объект');
     return;
@@ -1087,8 +945,7 @@ async function handleAddHeater(e) {
     return;
   }
 
-  const premiseId = form.premise_id?.value ? form.premise_id.value : null;
-
+  const premiseId = form.premise_id?.value ? parseInt(form.premise_id.value) : null;
   localStorage.setItem('last_object_id', objectId);
   if (premiseId) {
     localStorage.setItem('last_premise_id', premiseId);
@@ -1099,24 +956,15 @@ async function handleAddHeater(e) {
     status = 'warehouse';
   }
   if (status === 'moved' && form.move_premise_id?.value) {
-    form.premise_id.value = form.move_premise_id.value;
+    premiseId = parseInt(form.move_premise_id.value);
   }
   if (status === 'warehouse') {
-    form.premise_id.value = '';
-  }
-
-  // Находим UUID объекта и помещения
-  const selectedObject = window.objects.find(o => String(o.id) === String(objectId) || o.uuid === objectId);
-  const selectedPremise = premiseId ? window.premises.find(p => String(p.id) === String(premiseId) || p.uuid === premiseId) : null;
-
-  if (!selectedObject) {
-    showToast('Ошибка: объект не найден');
-    return;
+    premiseId = null;
   }
 
   const heaterData = {
-    object_uuid: selectedObject.uuid,
-    premise_uuid: selectedPremise?.uuid || null,
+    object_id: objectId,
+    premise_id: premiseId,
     name: name.trim(),
     serial: form.serial?.value || null,
     sticker_number: form.sticker_number?.value || null,
@@ -1129,40 +977,87 @@ async function handleAddHeater(e) {
     status: status
   };
 
-  try {
-    // Создаём через Store (с UUID и флагами синхронизации)
-    await Store.create('heaters', heaterData);
+  const isOnline = navigator.onLine;
 
-    // Обновляем window.heaters
-    window.heaters = await Store.refreshHeaters();
+  if (!isOnline) {
+    try {
+      // Find object and premise in array or IndexedDB
+      let selectedObject = objects.find(o => o.id === objectId);
+      if (!selectedObject) {
+        selectedObject = await db.objects.get(objectId);
+      }
 
-    const modal = document.querySelector('.modal-overlay');
-    if (modal) modal.remove();
+      let selectedPremise = premiseId ? premises.find(p => p.id === premiseId) : null;
+      if (!selectedPremise && premiseId) {
+        selectedPremise = await db.premises.get(premiseId);
+      }
 
-    render();
-    const msg = `Обогреватель "${heaterData.name}" сохранён`;
-    if (window.AppLogs) AppLogs.info(msg);
-    showToast(msg);
+      const newHeater = {
+        id: 'local_' + Date.now(),
+        object_id: objectId,
+        premise_id: premiseId,
+        name: heaterData.name,
+        serial: heaterData.serial,
+        sticker_number: heaterData.sticker_number,
+        voltage_v: heaterData.voltage_v,
+        power_w: heaterData.power_w,
+        heating_element: heaterData.heating_element,
+        protection_type: heaterData.protection_type,
+        manufacture_date: heaterData.manufacture_date,
+        decommission_date: heaterData.decommission_date,
+        status: heaterData.status,
+        object_name: selectedObject?.name || 'Unknown',
+        premise_name: selectedPremise?.name || 'Без помещения',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
 
-    // Если онлайн — сразу синхронизируем
-    if (navigator.onLine) {
-      setTimeout(() => SyncManager.sync(), 1000);
+      await db.heaters.add(newHeater);
+      heaters.push(newHeater);
+
+      await db.syncQueue.add({
+        action: '/heaters',
+        endpoint: '/heaters',
+        method: 'POST',
+        data: heaterData,
+        timestamp: Date.now(),
+        localId: newHeater.id
+      });
+
+      const modal = document.querySelector('.modal-overlay');
+      if (modal) modal.remove();
+
+      render();
+      showToast('Добавлен (ожидает сети)');
+    } catch (err) {
+      showToast('Ошибка: ' + err.message);
     }
-  } catch (err) {
-    console.error('[handleAddHeater] error:', err);
-    const msg = `Ошибка: ${err.message}`;
-    if (window.AppLogs) AppLogs.error(msg);
-    showToast(msg);
+  } else {
+    try {
+      await api('/heaters', {
+        method: 'POST',
+        body: JSON.stringify(heaterData)
+      });
+
+      const modal = document.querySelector('.modal-overlay');
+      if (modal) modal.remove();
+
+      await loadData();
+      render();
+      showToast('Добавлен');
+    } catch (err) {
+      showToast('Ошибка: ' + err.message);
+    }
   }
 }
 
 async function showHeaterDetail(id) {
   // Try to find heater in local cache first
-  let heater = window.heaters.find(h => h.id === id);
+  let heater = heaters.find(h => h.id === id);
 
   // If not found in global array, try IndexedDB (for offline-created heaters)
   if (!heater) {
-    heater = await Store.db.heaters.get(id);
+    heater = await db.heaters.get(id);
   }
 
   // If still not found, try to load from API
@@ -1184,8 +1079,8 @@ async function showHeaterDetail(id) {
   selectedHeater = heater;
 
   // Find related data (may be null for offline-created heaters)
-  const premise = heater.premise_id ? window.premises.find(p => p.id === heater.premise_id) : null;
-  const obj = premise?.object_id ? window.objects.find(o => o.id === premise.object_id) : null;
+  const premise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
+  const obj = premise?.object_id ? objects.find(o => o.id === premise.object_id) : null;
 
   // Формируем заголовок: Инв. № - Название
   const stickerTitle = heater.sticker_number ? `${heater.sticker_number} - ` : '';
@@ -1249,11 +1144,10 @@ async function showHeaterDetail(id) {
   `;
 
   if (currentUser?.role !== 'commander') {
-    const heaterId = String(heater.id).startsWith('local_') ? `'${heater.id}'` : heater.id;
     html += `
       <div style="margin-top:16px;display:flex;gap:8px">
-        <button class="btn btn-secondary btn-small" onclick="showEditHeaterModal(${heaterId})">Редактировать</button>
-        <button class="btn btn-secondary btn-small" onclick="showHistoryModal(${heaterId})">История</button>
+        <button class="btn btn-secondary btn-small" onclick="showEditHeaterModal(${heater.id})">Редактировать</button>
+        <button class="btn btn-secondary btn-small" onclick="showHistoryModal(${heater.id})">История</button>
       </div>
     `;
   }
@@ -1263,19 +1157,7 @@ async function showHeaterDetail(id) {
 
 async function loadHeaterEvents(heaterId) {
   try {
-    let events;
-    
-    // В оффлайн загружаем из IndexedDB
-    if (!navigator.onLine) {
-      events = await Store.db.events
-        .filter(e => String(e.heater_id) === String(heaterId))
-        .sortBy('created_at');
-      events = events.reverse().slice(0, 20);
-    } else {
-      // Онлайн — загружаем с сервера
-      events = await api(`/events?heater_id=${heaterId}&limit=20`);
-    }
-    
+    const events = await api(`/events?heater_id=${heaterId}&limit=20`);
     const container = $('#heater-events');
     if (!container) return;
 
@@ -1300,11 +1182,11 @@ async function loadHeaterEvents(heaterId) {
 
 async function showEditHeaterModal(id) {
   // Try to find heater in local cache first
-  let heater = window.heaters.find(h => h.id === id);
+  let heater = heaters.find(h => h.id === id);
 
   // If not found in global array, try IndexedDB (for offline-created heaters)
   if (!heater) {
-    heater = await Store.db.heaters.get(id);
+    heater = await db.heaters.get(id);
   }
 
   // If still not found and online, try to load from API
@@ -1324,39 +1206,28 @@ async function showEditHeaterModal(id) {
   }
 
   // Find current premise (may be null for offline-created premises)
-  const currentPremise = heater.premise_id ? window.premises.find(p => p.id === heater.premise_id) : null;
-
+  const currentPremise = heater.premise_id ? premises.find(p => p.id === heater.premise_id) : null;
+  
   // Get object_id from heater data or current premise
   const object_id = heater.object_id || currentPremise?.object_id;
 
   // Load objects if not available
-  if (window.objects.length === 0) {
-    await loadLocalData();
+  if (objects.length === 0) {
+    await loadData();
   }
 
-  const objectsHtml = window.objects.map(o =>
+  const objectsHtml = objects.map(o =>
     `<option value="${o.id}" ${o.id === object_id ? 'selected' : ''}>${o.name}</option>`
   ).join('');
 
   // Get all premises for this object (or all premises if object not found)
-  const availablePremises = object_id
-    ? window.premises.filter(p => p.object_id === object_id)
-    : window.premises;
+  const availablePremises = object_id 
+    ? premises.filter(p => p.object_id === object_id)
+    : premises;
 
-  const premisesHtml = availablePremises.map(p =>
-    `<option value="${p.id}" ${String(p.id) === String(heater.premise_id) ? 'selected' : ''}>${p.name}</option>`
+  const premisesHtml = availablePremises.map(p => 
+    `<option value="${p.id}" ${p.id === heater.premise_id ? 'selected' : ''}>${p.name}</option>`
   ).join('');
-
-  // Экранируем специальные символы для HTML
-  const escapeHtml = (str) => {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  };
 
   // Форматируем даты для input type="date" (требуется YYYY-MM-DD)
   const formatDateForInput = (dateStr) => {
@@ -1377,15 +1248,12 @@ async function showEditHeaterModal(id) {
     defaultDecommission = date.toISOString().split('T')[0];
   }
 
-  // ID для формы - оборачиваем в кавычки если строка
-  const formId = String(id).startsWith('local_') ? `'${id}'` : id;
-
   showModal(`
     <div class="modal-header">
       <div class="modal-title">Редактировать</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
-    <form onsubmit="handleEditHeater(event, ${formId})">
+    <form onsubmit="handleEditHeater(event, ${id})">
       <div class="input-group">
         <label>Объект</label>
         <select name="object_id" required onchange="localStorage.setItem('last_object_id', this.value); updatePremisesSelect(this.value)">
@@ -1509,23 +1377,23 @@ async function handleEditHeater(e, id) {
 
   if (!isOnline) {
     // Offline: update local cache immediately
-    const heaterIndex = window.heaters.findIndex(h => h.id === id);
+    const heaterIndex = heaters.findIndex(h => h.id === id);
     if (heaterIndex !== -1) {
       // Update local heater
-      const updatedHeater = { ...window.heaters[heaterIndex], ...data, updated_at: new Date().toISOString() };
-
+      const updatedHeater = { ...heaters[heaterIndex], ...data, updated_at: new Date().toISOString() };
+      
       // Update premise_name if premise changed
-      const selectedPremise = window.premises.find(p => p.id === premiseId);
+      const selectedPremise = premises.find(p => p.id === premiseId);
       if (selectedPremise) {
         updatedHeater.premise_name = selectedPremise.name;
       }
-
-      window.heaters[heaterIndex] = updatedHeater;
-      await Store.db.heaters.put(updatedHeater);
+      
+      heaters[heaterIndex] = updatedHeater;
+      await db.heaters.put(updatedHeater);
     }
     
     // Queue for sync
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: `/heaters/${id}`,
       endpoint: `/heaters/${id}`,
       method: 'PUT',
@@ -1566,7 +1434,7 @@ async function handleEditHeater(e, id) {
       }
 
       // Refresh data
-      await loadLocalData();
+      await loadData();
       render();
 
       // Refresh heater detail card if open
@@ -1607,14 +1475,14 @@ async function savePremiseNote(premiseId) {
 
   if (!isOnline) {
     // Offline: update local cache immediately
-    const premiseIndex = window.premises.findIndex(p => p.id === premiseId);
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
     if (premiseIndex !== -1) {
       premises[premiseIndex].note = note;
-      await Store.db.premises.update(premiseId, { note });
+      await db.premises.update(premiseId, { note });
     }
     
     // Queue for sync
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: `/premises/${premiseId}/note`,
       endpoint: `/premises/${premiseId}/note`,
       method: 'PUT',
@@ -1639,7 +1507,7 @@ async function savePremiseNote(premiseId) {
       } else {
         closeModal();
         showToast('Заметка сохранена');
-        await loadLocalData();
+        await loadData();
         render();
       }
     } catch (err) {
@@ -1655,14 +1523,14 @@ async function deletePremiseNote(premiseId) {
 
   if (!isOnline) {
     // Offline: update local cache immediately
-    const premiseIndex = window.premises.findIndex(p => p.id === premiseId);
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
     if (premiseIndex !== -1) {
       premises[premiseIndex].note = null;
-      await Store.db.premises.update(premiseId, { note: null });
+      await db.premises.update(premiseId, { note: null });
     }
     
     // Queue for sync
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: `/premises/${premiseId}/note`,
       endpoint: `/premises/${premiseId}/note`,
       method: 'DELETE',
@@ -1687,7 +1555,7 @@ async function deletePremiseNote(premiseId) {
       } else {
         closeModal();
         showToast('Заметка удалена');
-        await loadLocalData();
+        await loadData();
         render();
       }
     } catch (err) {
@@ -1696,23 +1564,16 @@ async function deletePremiseNote(premiseId) {
   }
 }
 
-async function showHistoryModal(heaterId) {
-  // Ищем обогреватель в window.heaters
-  let heater = window.heaters.find(h => String(h.id) === String(heaterId));
-  
-  // Если не найден, ищем в IndexedDB
-  if (!heater) {
-    heater = await Store.db.heaters.get(heaterId);
-  }
-  
+function showHistoryModal(heaterId) {
+  const heater = heaters.find(h => h.id === heaterId);
   showModal(`
     <div class="modal-header">
-      <div class="modal-title">История: ${heater?.name || 'Обогреватель'}</div>
+      <div class="modal-title">История: ${heater?.name}</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div id="heater-events" class="timeline"></div>
   `);
-  await loadHeaterEvents(heaterId);
+  loadHeaterEvents(heaterId);
 }
 
 // Admin functions
@@ -1721,9 +1582,9 @@ let showDeleted = false;
 async function loadAdminData() {
   try {
     // Use cached data first (works offline)
-    const usersData = window.users.length > 0 ? users : await Store.db.users.toArray();
-    const objectsData = window.objects.length > 0 ? objects : await Store.db.objects.toArray();
-    const premisesData = window.premises.length > 0 ? premises : await Store.db.premises.toArray();
+    const usersData = users.length > 0 ? users : await db.users.toArray();
+    const objectsData = objects.length > 0 ? objects : await db.objects.toArray();
+    const premisesData = premises.length > 0 ? premises : await db.premises.toArray();
 
     // Render users
     const usersList = $('#users-list');
@@ -1832,7 +1693,7 @@ async function handleImport() {
         });
         closeModal();
         showToast(`Импорт выполнен: ${Object.entries(response.imported).map(([k,v]) => `${k}: ${v}`).join(', ')}`);
-        await loadLocalData();
+        await loadData();
         await loadAdminData();
       } catch (err) {
         showToast('Ошибка импорта: ' + err.message);
@@ -1847,7 +1708,7 @@ async function handleImport() {
 async function showUserObjectsModal(userId, userName) {
   try {
     // Use cached data (works offline)
-    const allObjects = window.objects.length > 0 ? objects : await Store.db.objects.toArray();
+    const allObjects = objects.length > 0 ? objects : await db.objects.toArray();
     const userObjects = await fetch(`/api/users/${userId}/objects`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -2048,33 +1909,49 @@ function showAddObjectModal() {
 async function handleAddObject(e) {
   e.preventDefault();
   const form = e.target;
+  const isOnline = navigator.onLine;
 
   const objectData = {
     name: form.name.value,
     code: form.code.value || null
   };
 
-  try {
-    // Создаём через Store (с UUID и флагами синхронизации)
-    await Store.create('objects', objectData);
+  if (!isOnline) {
+    // Offline: create in IndexedDB
+    const newObject = {
+      id: 'local_' + Date.now(),
+      ...objectData,
+      deleted_at: null
+    };
 
-    // Обновляем window.objects
-    window.objects = await Store.refreshObjects();
+    await db.objects.add(newObject);
+    objects.push(newObject);
+
+    await db.syncQueue.add({
+      action: '/objects',
+      endpoint: '/objects',
+      method: 'POST',
+      data: objectData,
+      timestamp: Date.now(),
+      localId: newObject.id
+    });
 
     closeModal();
     render();
-    const msg = `Объект "${objectData.name}" сохранён`;
-    if (window.AppLogs) AppLogs.info(msg);
-    showToast(msg);
-
-    // Если онлайн — сразу синхронизируем
-    if (navigator.onLine) {
-      setTimeout(() => SyncManager.sync(), 1000);
+    showToast('Добавлен (ожидает сети)');
+  } else {
+    // Online: API call
+    try {
+      await api('/objects', {
+        method: 'POST',
+        body: JSON.stringify(objectData)
+      });
+      closeModal();
+      showToast('Объект добавлен');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message);
     }
-  } catch (err) {
-    const msg = `Ошибка: ${err.message}`;
-    if (window.AppLogs) AppLogs.error(msg);
-    showToast(msg);
   }
 }
 
@@ -2110,13 +1987,13 @@ async function handleEditObject(e, objectId) {
 
   if (!isOnline) {
     // Offline: update IndexedDB
-    const objIndex = window.objects.findIndex(o => o.id === objectId);
+    const objIndex = objects.findIndex(o => o.id === objectId);
     if (objIndex !== -1) {
       objects[objIndex] = { ...objects[objIndex], ...objectData };
-      await Store.db.objects.put(objects[objIndex]);
+      await db.objects.put(objects[objIndex]);
     }
 
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: `/objects/${objectId}`,
       endpoint: `/objects/${objectId}`,
       method: 'PUT',
@@ -2171,11 +2048,11 @@ async function restoreObject(id) {
 
 async function showAddPremiseModal() {
   // Загружаем объекты если пустые
-  if (window.objects.length === 0) {
-    await loadLocalData();
+  if (objects.length === 0) {
+    await loadData();
   }
   const lastObjectId = localStorage.getItem('last_object_id') || '';
-  const objectsHtml = window.objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
+  const objectsHtml = objects.map(o => `<option value="${o.id}" ${o.id == lastObjectId ? 'selected' : ''}>${o.name}</option>`).join('');
 
   showModal(`
     <div class="modal-header">
@@ -2212,12 +2089,12 @@ async function handleAddPremise(e) {
   const form = e.target;
 
   const isOnline = navigator.onLine;
-  const objectId = form.object_id.value;
-
+  const objectId = parseInt(form.object_id.value);
+  
   // Find object in array or IndexedDB (for offline-created objects)
-  let selectedObject = window.objects.find(o => o.id === objectId);
+  let selectedObject = objects.find(o => o.id === objectId);
   if (!selectedObject) {
-    selectedObject = await Store.db.objects.get(objectId);
+    selectedObject = await db.objects.get(objectId);
   }
 
   const premiseData = {
@@ -2239,13 +2116,10 @@ async function handleAddPremise(e) {
     };
 
     // Add to local cache immediately
-    await Store.db.premises.add(newPremise);
-
-    // Обновляем window.premises
-    window.premises = await Store.refreshPremises();
+    await db.premises.add(newPremise);
 
     // Queue for sync
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: '/premises',
       endpoint: '/premises',
       method: 'POST',
@@ -2253,6 +2127,9 @@ async function handleAddPremise(e) {
       timestamp: Date.now(),
       localId: newPremise.id
     });
+
+    // Update global array
+    premises.push(newPremise);
 
     closeModal();
     render();
@@ -2275,11 +2152,11 @@ async function handleAddPremise(e) {
 
 function showEditPremiseModal(premiseId, name, number, type, objectId) {
   // Load objects if not available
-  if (window.objects.length === 0) {
-    loadLocalData();
+  if (objects.length === 0) {
+    loadData();
   }
   
-  const objectsHtml = window.objects.map(o => 
+  const objectsHtml = objects.map(o => 
     `<option value="${o.id}" ${o.id == objectId ? 'selected' : ''}>${o.name}</option>`
   ).join('');
 
@@ -2323,7 +2200,7 @@ async function handleEditPremise(e, premiseId) {
   const isOnline = navigator.onLine;
 
   const premiseData = {
-    object_id: form.object_id.value,
+    object_id: parseInt(form.object_id.value),
     name: form.name.value,
     number: form.number.value || null,
     type: form.type.value
@@ -2331,19 +2208,19 @@ async function handleEditPremise(e, premiseId) {
 
   if (!isOnline) {
     // Offline: update IndexedDB
-    const premiseIndex = window.premises.findIndex(p => p.id === premiseId);
+    const premiseIndex = premises.findIndex(p => p.id === premiseId);
     if (premiseIndex !== -1) {
       // Find object name for display
-      const selectedObject = window.objects.find(o => o.id === premiseData.object_id) || await Store.db.objects.get(premiseData.object_id);
+      const selectedObject = objects.find(o => o.id === premiseData.object_id) || await db.objects.get(premiseData.object_id);
       premises[premiseIndex] = { 
         ...premises[premiseIndex], 
         ...premiseData,
         object_name: selectedObject?.name || 'Unknown'
       };
-      await Store.db.premises.put(premises[premiseIndex]);
+      await db.premises.put(premises[premiseIndex]);
     }
 
-    await Store.db.syncQueue.add({
+    await db.syncQueue.add({
       action: `/premises/${premiseId}`,
       endpoint: `/premises/${premiseId}`,
       method: 'PUT',
@@ -2418,7 +2295,7 @@ async function updateSyncStatus() {
   const el = $('#sync-status');
   if (el) {
     // Get pending operations count
-    const pendingCount = await Store.db.syncQueue.count();
+    const pendingCount = await db.syncQueue.count();
     
     if (!isOnline) {
       el.textContent = pendingCount > 0 
@@ -2441,7 +2318,7 @@ async function init() {
 
   if (checkAuth()) {
     // Load data from cache first (works offline)
-    await loadLocalData();
+    await loadData();
     await setView('heaters');
   } else {
     await setView('login');
@@ -2451,10 +2328,10 @@ async function init() {
   window.addEventListener('online', () => {
     showToast('🟢 Онлайн');
     render();
-    SyncManager.syncQueue();  // Sync any pending operations
+    syncQueue();  // Sync any pending operations
     updateSyncStatus();
     // Refresh data from server
-    loadLocalData();
+    loadData();
   });
 
   window.addEventListener('offline', () => {
@@ -2485,88 +2362,9 @@ window.handleEditObject = handleEditObject;
 window.showEditPremiseModal = showEditPremiseModal;
 window.handleEditPremise = handleEditPremise;
 window.forceSync = forceSync;
-window.showEditHeaterModal = showEditHeaterModal;
-window.showHistoryModal = showHistoryModal;
-window.showQueueDetails = showQueueDetails;
-window.clearQueueAndData = clearQueueAndData;
 
 // Force sync function (for manual trigger)
 async function forceSync() {
-  await SyncManager.sync();
+  await SyncManager.syncQueue();
   updateSyncStatus();
-}
-
-// Показать детали очереди синхронизации
-async function showQueueDetails() {
-  // Получаем все pending записи из всех таблиц
-  const tables = ['heaters', 'premises', 'objects'];
-  const pending = [];
-  
-  for (const table of tables) {
-    const items = await Store.getPending(table);
-    pending.push(...items.map(item => ({ ...item, _table: table })));
-  }
-  
-  if (pending.length === 0) {
-    showToast('Очередь пуста');
-    return;
-  }
-  
-  const html = `
-    <div class="modal-header">
-      <div class="modal-title">📦 Ожидает синхронизации (${pending.length})</div>
-      <button class="modal-close" onclick="closeModal()">×</button>
-    </div>
-    <div style="max-height: 400px; overflow-y: auto;">
-      ${pending.map((item) => {
-        const statusColors = { pending: '#ff9800', failed: '#f44336' };
-        const statusIcons = { pending: '⏳', failed: '❌' };
-        const status = item._sync_status || 'pending';
-        return `
-          <div style="padding: 10px; margin: 5px 0; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid ${statusColors[status] || '#666'};">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-weight: 600;">${statusIcons[status] || '•'} ${item._table}</span>
-              <span style="font-size: 11px; color: var(--text-secondary);">${item.uuid?.substring(0, 8)}...</span>
-            </div>
-            <div style="font-size: 13px; margin-top: 4px;">${item.name || 'Без названия'}</div>
-            ${item._sync_error ? `<div style="font-size: 11px; color: #f44336; margin-top: 4px;">${item._sync_error}</div>` : ''}
-          </div>
-        `;
-      }).join('')}
-    </div>
-    <div style="margin-top: 15px; display: flex; gap: 10px;">
-      <button class="btn btn-secondary btn-small" onclick="closeModal()" style="flex: 1">Закрыть</button>
-      <button class="btn btn-danger btn-small" onclick="clearQueueAndData()" style="flex: 1">🗑️ Сброс данных</button>
-    </div>
-  `;
-  
-  showModal(html);
-}
-
-// Сброс локальных данных (для тестирования)
-async function clearQueueAndData() {
-  if (!confirm('⚠️ Внимание!\n\nЭто удалит:\n- Все локальные данные (обогреватели, объекты, помещения)\n\nДанные на сервере НЕ будут затронуты.\n\nПродолжить?')) {
-    return;
-  }
-
-  try {
-    // Очищаем все таблицы
-    await Store.db.heaters.clear();
-    await Store.db.premises.clear();
-    await Store.db.objects.clear();
-    await Store.db.stickers.clear();
-    await Store.db.events.clear();
-    await Store.db.syncState.clear();
-
-    // Перезагружаем данные
-    await loadLocalData();
-
-    AppLogs.success('Данные очищены');
-    showToast('Данные очищены. Перезагрузите страницу.');
-    closeModal();
-    render();
-  } catch (err) {
-    AppLogs.error(`Ошибка сброса: ${err.message}`);
-    showToast(`Ошибка: ${err.message}`);
-  }
 }
