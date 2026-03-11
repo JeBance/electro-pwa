@@ -1169,8 +1169,8 @@ async function handleAddHeater(e) {
       });
     }
 
-    // Обновляем window.heaters
-    window.heaters = await Store.refreshHeaters();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     const modal = document.querySelector('.modal-overlay');
     if (modal) modal.remove();
@@ -1335,8 +1335,8 @@ async function deleteHeater(id) {
     // Soft delete в IndexedDB
     await Store.update('heaters', id, { deleted_at: new Date().toISOString() });
 
-    // Обновляем window.heaters
-    window.heaters = await Store.refreshHeaters();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     render();
     showToast('Обогреватель удалён');
@@ -1569,8 +1569,8 @@ async function handleEditHeater(e, id) {
     // Обновляем через Store
     await Store.update('heaters', id, data);
 
-    // Обновляем window.heaters
-    window.heaters = await Store.refreshHeaters();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     // Close modal
     const modal = form.closest('.modal-overlay');
@@ -2137,8 +2137,8 @@ async function handleAddObject(e) {
     // Создаём через Store (с UUID)
     await Store.create('objects', objectData);
 
-    // Обновляем window.objects
-    window.objects = await Store.refreshObjects();
+    // Обновляем ВСЕ данные (объекты используются в помещениях и обогревателях)
+    await loadLocalData();
 
     closeModal();
     render();
@@ -2185,8 +2185,8 @@ async function handleEditObject(e, objectId) {
     // Обновляем через Store
     await Store.update('objects', objectId, objectData);
 
-    // Обновляем window.objects
-    window.objects = await Store.refreshObjects();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     closeModal();
     render();
@@ -2204,10 +2204,9 @@ async function deleteObject(id) {
     // Soft delete в IndexedDB
     await Store.update('objects', id, { deleted_at: new Date().toISOString() });
 
-    // Обновляем window.objects
-    window.objects = await Store.refreshObjects();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
-    closeModal();
     render();
     showToast('Объект удалён');
   } catch (err) {
@@ -2223,8 +2222,8 @@ async function restoreObject(id) {
     // Восстанавливаем в IndexedDB
     await Store.update('objects', id, { deleted_at: null });
 
-    // Обновляем window.objects
-    window.objects = await Store.refreshObjects();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     render();
     showToast('Объект восстановлен');
@@ -2300,8 +2299,8 @@ async function handleAddPremise(e) {
     // Создаём через Store (с UUID)
     await Store.create('premises', premiseData);
 
-    // Обновляем window.premises
-    window.premises = await Store.refreshPremises();
+    // Обновляем ВСЕ данные (помещения используются в обогревателях)
+    await loadLocalData();
 
     closeModal();
     render();
@@ -2374,8 +2373,8 @@ async function handleEditPremise(e, premiseId) {
     // Обновляем через Store
     await Store.update('premises', premiseId, premiseData);
 
-    // Обновляем window.premises
-    window.premises = await Store.refreshPremises();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     closeModal();
     render();
@@ -2393,10 +2392,9 @@ async function deletePremise(id) {
     // Soft delete в IndexedDB
     await Store.update('premises', id, { deleted_at: new Date().toISOString() });
 
-    // Обновляем window.premises
-    window.premises = await Store.refreshPremises();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
-    closeModal();
     render();
     showToast('Помещение удалено');
   } catch (err) {
@@ -2412,8 +2410,8 @@ async function restorePremise(id) {
     // Восстанавливаем в IndexedDB
     await Store.update('premises', id, { deleted_at: null });
 
-    // Обновляем window.premises
-    window.premises = await Store.refreshPremises();
+    // Обновляем ВСЕ данные
+    await loadLocalData();
 
     render();
     showToast('Помещение восстановлено');
