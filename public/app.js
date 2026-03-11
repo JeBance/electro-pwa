@@ -1729,10 +1729,43 @@ let showDeleted = false;
 
 async function loadAdminData() {
   try {
-    // Use cached data first (works offline)
-    const usersData = window.users.length > 0 ? window.users : await Store.db.users.toArray();
-    const objectsData = window.objects.length > 0 ? window.objects : await Store.db.objects.toArray();
-    const premisesData = window.premises.length > 0 ? window.premises : await Store.db.premises.toArray();
+    // Загружаем свежие данные с сервера если онлайн
+    if (navigator.onLine) {
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      };
+      
+      // Загружаем пользователей
+      const usersRes = await fetch('/api/users', { headers });
+      if (usersRes.ok) {
+        const usersData = await usersRes.json();
+        window.users = usersData;
+        await Store.db.users.bulkPut(usersData);
+      }
+      
+      // Загружаем объекты
+      const objectsRes = await fetch('/api/objects', { headers });
+      if (objectsRes.ok) {
+        const objectsData = await objectsRes.json();
+        window.objects = objectsData;
+        await Store.db.objects.bulkPut(objectsData);
+      }
+      
+      // Загружаем помещения
+      const premisesRes = await fetch('/api/premises', { headers });
+      if (premisesRes.ok) {
+        const premisesData = await premisesRes.json();
+        window.premises = premisesData;
+        await Store.db.premises.bulkPut(premisesData);
+      }
+    }
+    
+    // Используем данные из window
+    const usersData = window.users;
+    const objectsData = window.objects;
+    const premisesData = window.premises;
 
     // Render users
     const usersList = $('#users-list');
