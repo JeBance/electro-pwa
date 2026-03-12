@@ -1344,35 +1344,12 @@ async function loadHeaterEvents(heaterId) {
       return;
     }
 
-    // Загружаем все помещения для отображения названий (IndexedDB + window.premises)
-    const allPremises = await Store.db.premises.toArray();
-    // Добавляем помещения из window.premises если они есть
-    const windowPremises = window.premises || [];
-    const allPremisesMap = new Map();
-    allPremises.forEach(p => {
-      allPremisesMap.set(String(p.uuid), p);
-      allPremisesMap.set(String(p.id), p);
-    });
-    windowPremises.forEach(p => {
-      if (!allPremisesMap.has(String(p.uuid))) {
-        allPremisesMap.set(String(p.uuid), p);
-        allPremisesMap.set(String(p.id), p);
-      }
-    });
-    
-    const getPremiseName = (premiseId, premiseUuid) => {
-      if (!premiseId && !premiseUuid) return 'без помещения';
-      // Ищем по UUID или ID (с приведением типов)
-      const premise = allPremisesMap.get(String(premiseUuid)) || allPremisesMap.get(String(premiseId));
-      return premise?.name || 'без помещения';
-    };
-
     container.innerHTML = events.map(e => {
-      // Формируем текст о перемещении
+      // Формируем текст о перемещении (используем названия из сервера)
       let moveText = '';
       if (e.event_type === 'status_change' && (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
-        const fromName = getPremiseName(e.from_premise_id, e.from_premise_uuid);
-        const toName = getPremiseName(e.to_premise_id, e.to_premise_uuid);
+        const fromName = e.from_premise_name || 'без помещения';
+        const toName = e.to_premise_name || 'без помещения';
         moveText = `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📍 ${fromName} → ${toName}</div>`;
       }
 
