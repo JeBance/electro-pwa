@@ -575,12 +575,16 @@ function renderAdmin() {
   return `
     <div class="admin-section">
       <div class="admin-section-title">База данных</div>
-      <div style="display:flex;gap:8px;margin-bottom:16px">
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-secondary btn-small" onclick="exportDatabase()">📥 Экспорт БД</button>
         <button class="btn btn-secondary btn-small" onclick="showImportModal()">📤 Импорт БД</button>
         <button class="btn btn-secondary btn-small" onclick="toggleShowDeleted()">
           ${showDeleted ? '👁️ Скрыть удалённые' : '👁️ Показать удалённые'}
         </button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn btn-danger btn-small" onclick="clearIndexedDB()">🗑️ Очистить IndexedDB</button>
+        <button class="btn btn-danger btn-small" onclick="clearServerDatabase()">🗑️ Очистить БД на сервере</button>
       </div>
     </div>
     <div class="admin-section">
@@ -1960,6 +1964,78 @@ async function exportDatabase() {
     showToast('Экспорт выполнен');
   } catch (err) {
     showToast(err.message);
+  }
+}
+
+async function clearIndexedDB() {
+  if (!confirm('⚠️ Вы уверены, что хотите очистить всю IndexedDB? Это действие необратимо!')) return;
+  
+  try {
+    if (window.Store && window.Store.db) {
+      await window.Store.db.heaters.clear();
+      await window.Store.db.premises.clear();
+      await window.Store.db.objects.clear();
+      await window.Store.db.stickers.clear();
+      await window.Store.db.events.clear();
+      await window.Store.db.users.clear();
+      await window.Store.db.userObjects.clear();
+      await window.Store.db.syncState.clear();
+    }
+    
+    // Очищаем localStorage (кроме токена)
+    const token = localStorage.getItem('token');
+    localStorage.clear();
+    if (token) localStorage.setItem('token', token);
+    
+    // Перезагружаем данные
+    await loadLocalData();
+    render();
+    
+    showToast('✅ IndexedDB очищена');
+    if (window.AppLogs) AppLogs.success('IndexedDB очищена пользователем');
+  } catch (err) {
+    showToast('Ошибка: ' + err.message);
+    if (window.AppLogs) AppLogs.error('Ошибка очистки IndexedDB: ' + err.message);
+  }
+}
+
+async function clearServerDatabase() {
+  if (!confirm('⚠️ Вы уверены, что хотите очистить всю базу данных на сервере? Это действие необратимо!\n\nБудут удалены:\n- Все обогреватели\n- Все помещения\n- Все объекты\n- Все события истории\n- Все пользователи (кроме admin)')) return;
+  
+  try {
+    const response = await fetch('/api/admin/clear-database', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Ошибка сервера');
+    }
+    
+    const result = await response.json();
+    
+    // Очищаем локальную IndexedDB после очистки сервера
+    if (window.Store && window.Store.db) {
+      await window.Store.db.heaters.clear();
+      await window.Store.db.premises.clear();
+      await window.Store.db.objects.clear();
+      await window.Store.db.stickers.clear();
+      await window.Store.db.events.clear();
+      await window.Store.db.users.clear();
+      await window.Store.db.userObjects.clear();
+    }
+    
+    await loadLocalData();
+    render();
+    
+    showToast(`✅ БД очищена: ${result.deleted || 0} записей удалено`);
+    if (window.AppLogs) AppLogs.success(`БД на сервере очищена: ${result.deleted || 0} записей`);
+  } catch (err) {
+    showToast('Ошибка: ' + err.message);
+    if (window.AppLogs) AppLogs.error('Ошибка очистки БД на сервере: ' + err.message);
   }
 }
 
