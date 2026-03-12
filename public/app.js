@@ -1346,18 +1346,22 @@ async function loadHeaterEvents(heaterId) {
 
     // Загружаем все помещения для отображения названий
     const allPremises = await Store.db.premises.toArray();
-    const getPremiseName = (premiseId) => {
-      if (!premiseId) return 'без помещения';
-      const premise = allPremises.find(p => p.id === premiseId || String(p.uuid) === String(premiseId));
+    const getPremiseName = (premiseId, premiseUuid) => {
+      if (!premiseId && !premiseUuid) return 'без помещения';
+      // Ищем по UUID или ID (с приведением типов)
+      const premise = allPremises.find(p => 
+        (premiseUuid && String(p.uuid) === String(premiseUuid)) ||
+        (premiseId && String(p.id) === String(premiseId))
+      );
       return premise?.name || 'без помещения';
     };
 
     container.innerHTML = events.map(e => {
       // Формируем текст о перемещении
       let moveText = '';
-      if (e.event_type === 'status_change' && e.from_premise_id !== e.to_premise_id) {
-        const fromName = getPremiseName(e.from_premise_id);
-        const toName = getPremiseName(e.to_premise_id);
+      if (e.event_type === 'status_change' && (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
+        const fromName = getPremiseName(e.from_premise_id, e.from_premise_uuid);
+        const toName = getPremiseName(e.to_premise_id, e.to_premise_uuid);
         moveText = `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📍 ${fromName} → ${toName}</div>`;
       }
 
