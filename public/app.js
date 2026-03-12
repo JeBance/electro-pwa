@@ -317,16 +317,17 @@ function renderPremisesView() {
   let html = '';
   
   // Панель сортировки
+  const sortDirText = premiseSortDir === 'asc' ? ' (по возр.)' : ' (по убыв.)';
   html += `
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
       <span style="font-size:12px;color:var(--text-secondary)">Сортировка вагонов:</span>
       <select class="sort-select" onchange="setPremiseSort(this.value)">
-        <option value="name"${premiseSortField === 'name' ? ' selected' : ''}>По названию</option>
-        <option value="number"${premiseSortField === 'number' ? ' selected' : ''}>По номеру</option>
-        <option value="object_name"${premiseSortField === 'object_name' ? ' selected' : ''}>По объекту</option>
-        <option value="last_modified"${premiseSortField === 'last_modified' ? ' selected' : ''}>По изменению</option>
+        <option value="name"${premiseSortField === 'name' ? ' selected' : ''}>По названию${premiseSortField === 'name' ? sortDirText : ''}</option>
+        <option value="number"${premiseSortField === 'number' ? ' selected' : ''}>По номеру${premiseSortField === 'number' ? sortDirText : ''}</option>
+        <option value="object_name"${premiseSortField === 'object_name' ? ' selected' : ''}>По объекту${premiseSortField === 'object_name' ? sortDirText : ''}</option>
+        <option value="last_modified"${premiseSortField === 'last_modified' ? ' selected' : ''}>По изменению${premiseSortField === 'last_modified' ? sortDirText : ''}</option>
       </select>
-      <span id="premise-sort-dir" style="font-size:12px;color:var(--text-secondary)">${premiseSortDir === 'asc' ? '↑' : '↓'}</span>
+      <button class="btn btn-secondary btn-small" onclick="togglePremiseSortDir()" title="Поменять направление">${premiseSortDir === 'asc' ? '↑' : '↓'}</button>
     </div>
   `;
 
@@ -449,11 +450,11 @@ function setPremiseSort(field) {
     premiseSortField = field;
     premiseSortDir = 'asc';
   }
-  // Update direction indicator
-  const dirEl = document.getElementById('premise-sort-dir');
-  if (dirEl) {
-    dirEl.textContent = premiseSortDir === 'asc' ? '↑' : '↓';
-  }
+  render();
+}
+
+function togglePremiseSortDir() {
+  premiseSortDir = premiseSortDir === 'asc' ? 'desc' : 'asc';
   render();
 }
 
@@ -2625,6 +2626,7 @@ window.showUserObjectsModal = showUserObjectsModal;
 window.saveUserObjects = saveUserObjects;
 window.toggleSort = toggleSort;
 window.setPremiseSort = setPremiseSort;
+window.togglePremiseSortDir = togglePremiseSortDir;
 window.setFilter = setFilter;
 window.renderHeaters = renderHeaters;
 window.handleEditHeater = handleEditHeater;
