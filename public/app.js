@@ -1357,18 +1357,20 @@ async function loadHeaterEvents(heaterId) {
     container.innerHTML = events.map(e => {
       // Формируем текст о перемещении
       let moveText = '';
-      if (e.event_type === 'status_change' && (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
+      // Проверяем оба типа событий: premise_change (перемещение) и status_change со сменой помещения
+      if ((e.event_type === 'premise_change' || e.event_type === 'status_change') && 
+          (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
         // В онлайн-режиме используем названия с сервера, в оффлайн - ищем локально
         let fromName = e.from_premise_name;
         let toName = e.to_premise_name;
-        
+
         if (!navigator.onLine || !fromName) {
           fromName = premisesMap.get(String(e.from_premise_id)) || premisesMap.get(String(e.from_premise_uuid)) || 'без помещения';
         }
         if (!navigator.onLine || !toName) {
           toName = premisesMap.get(String(e.to_premise_id)) || premisesMap.get(String(e.to_premise_uuid)) || 'без помещения';
         }
-        
+
         moveText = `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📍 ${fromName} → ${toName}</div>`;
       }
 
