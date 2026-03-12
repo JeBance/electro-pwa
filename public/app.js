@@ -1672,19 +1672,19 @@ async function handleEditHeater(e, id) {
       if (existingHeater.name !== data.name) changes.push(`название: "${existingHeater.name}" → "${data.name}"`);
       if (existingHeater.serial !== data.serial) changes.push(`серийный номер: "${existingHeater.serial}" → "${data.serial}"`);
       if (existingHeater.status !== data.status) changes.push(`статус: "${existingHeater.status}" → "${data.status}"`);
-      if (premiseChanged) {
-        const newPremise = await Store.db.premises.get(data.premise_id);
-        changes.push(`помещение: "${existingHeater.premise_name}" → "${newPremise?.name || 'без помещения'}"`);
-      }
     }
 
-    if (changes.length > 0) {
-      // Если изменилось только помещение (перемещение), используем другой текст
+    if (changes.length > 0 || premiseChanged) {
+      // Формируем комментарий
       let comment;
-      if (premiseChanged && changes.length === 1) {
-        const newPremise = await Store.db.premises.get(data.premise_id);
-        comment = `Обогреватель перемещён: ${existingHeater.premise_name || 'без помещения'} → ${newPremise?.name || 'без помещения'}`;
+      if (premiseChanged && changes.length === 0) {
+        // Только перемещение - без дублирования маршрута (он будет в 📍 строке)
+        comment = 'Обогреватель перемещён:';
+      } else if (premiseChanged) {
+        // Перемещение + другие изменения
+        comment = `Изменения: ${changes.join(', ')}`;
       } else {
+        // Только другие изменения
         comment = `Обогреватель изменён: ${changes.join(', ')}`;
       }
       
