@@ -1665,31 +1665,43 @@ async function handleEditHeater(e, id) {
 
     // Создаём событие об изменении обогревателя
     const changes = [];
+    const premiseChanged = existingHeater && 
+      existingHeater.premise_name !== (await Store.db.premises.get(data.premise_id))?.name;
+    
     if (existingHeater) {
       if (existingHeater.name !== data.name) changes.push(`название: "${existingHeater.name}" → "${data.name}"`);
       if (existingHeater.serial !== data.serial) changes.push(`серийный номер: "${existingHeater.serial}" → "${data.serial}"`);
       if (existingHeater.status !== data.status) changes.push(`статус: "${existingHeater.status}" → "${data.status}"`);
-      if (existingHeater.premise_name !== (await Store.db.premises.get(data.premise_id))?.name) {
+      if (premiseChanged) {
         const newPremise = await Store.db.premises.get(data.premise_id);
         changes.push(`помещение: "${existingHeater.premise_name}" → "${newPremise?.name || 'без помещения'}"`);
       }
     }
 
     if (changes.length > 0) {
+      // Если изменилось только помещение (перемещение), используем другой текст
+      let comment;
+      if (premiseChanged && changes.length === 1) {
+        const newPremise = await Store.db.premises.get(data.premise_id);
+        comment = `Обогреватель перемещён: ${existingHeater.premise_name || 'без помещения'} → ${newPremise?.name || 'без помещения'}`;
+      } else {
+        comment = `Обогреватель изменён: ${changes.join(', ')}`;
+      }
+      
       await Store.db.events.add({
         uuid: Store.generateUUIDSync(),
         heater_uuid: existingHeater?.uuid || data.premise_uuid,
         heater_id: id,
         user_uuid: currentUser?.uuid,
         user_id: currentUser?.id,
-        event_type: 'status_change',
+        event_type: premiseChanged ? 'premise_change' : 'status_change',
         from_premise_uuid: existingHeater?.premise_uuid,
         from_premise_id: existingHeater?.premise_id,
         to_premise_uuid: data.premise_uuid,
         to_premise_id: data.premise_id,
         old_status: existingHeater?.status,
         new_status: data.status,
-        comment: `Обогреватель изменён: ${changes.join(', ')}`,
+        comment: comment,
         created_at: new Date().toISOString(),
         _sync_status: 'pending',
         _modified: true
