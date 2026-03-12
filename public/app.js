@@ -1344,15 +1344,26 @@ async function loadHeaterEvents(heaterId) {
       return;
     }
 
-    // Загружаем все помещения для отображения названий
+    // Загружаем все помещения для отображения названий (IndexedDB + window.premises)
     const allPremises = await Store.db.premises.toArray();
+    // Добавляем помещения из window.premises если они есть
+    const windowPremises = window.premises || [];
+    const allPremisesMap = new Map();
+    allPremises.forEach(p => {
+      allPremisesMap.set(String(p.uuid), p);
+      allPremisesMap.set(String(p.id), p);
+    });
+    windowPremises.forEach(p => {
+      if (!allPremisesMap.has(String(p.uuid))) {
+        allPremisesMap.set(String(p.uuid), p);
+        allPremisesMap.set(String(p.id), p);
+      }
+    });
+    
     const getPremiseName = (premiseId, premiseUuid) => {
       if (!premiseId && !premiseUuid) return 'без помещения';
       // Ищем по UUID или ID (с приведением типов)
-      const premise = allPremises.find(p => 
-        (premiseUuid && String(p.uuid) === String(premiseUuid)) ||
-        (premiseId && String(p.id) === String(premiseId))
-      );
+      const premise = allPremisesMap.get(String(premiseUuid)) || allPremisesMap.get(String(premiseId));
       return premise?.name || 'без помещения';
     };
 
