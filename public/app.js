@@ -1327,7 +1327,7 @@ async function loadHeaterEvents(heaterId) {
     if (!navigator.onLine) {
       const allEvents = await Store.db.events.toArray();
       // Ищем события по heater_id или heater_uuid
-      events = allEvents.filter(e => 
+      events = allEvents.filter(e =>
         String(e.heater_id) === String(heaterId) || e.heater_uuid === heaterId
       );
       events = events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20);
@@ -1344,15 +1344,33 @@ async function loadHeaterEvents(heaterId) {
       return;
     }
 
-    container.innerHTML = events.map(e => `
-      <div class="timeline-item">
-        <div class="timeline-dot"></div>
-        <div class="timeline-content">
-          <div class="timeline-date">${formatDate(e.created_at)}</div>
-          <div class="timeline-text">${e.comment || ''}<br><small>${e.user_name || 'Система'}</small></div>
+    // Загружаем все помещения для отображения названий
+    const allPremises = await Store.db.premises.toArray();
+    const getPremiseName = (premiseId) => {
+      if (!premiseId) return 'без помещения';
+      const premise = allPremises.find(p => p.id === premiseId || String(p.uuid) === String(premiseId));
+      return premise?.name || 'без помещения';
+    };
+
+    container.innerHTML = events.map(e => {
+      // Формируем текст о перемещении
+      let moveText = '';
+      if (e.event_type === 'status_change' && e.from_premise_id !== e.to_premise_id) {
+        const fromName = getPremiseName(e.from_premise_id);
+        const toName = getPremiseName(e.to_premise_id);
+        moveText = `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📍 ${fromName} → ${toName}</div>`;
+      }
+
+      return `
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-date">${formatDate(e.created_at)}</div>
+            <div class="timeline-text">${e.comment || ''}${moveText}<br><small>${e.user_name || 'Система'}</small></div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (err) {
     console.error('Failed to load events:', err);
   }
