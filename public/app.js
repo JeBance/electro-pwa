@@ -1344,12 +1344,31 @@ async function loadHeaterEvents(heaterId) {
       return;
     }
 
+    // Для оффлайн-режима загружаем помещения для поиска названий
+    let premisesMap = new Map();
+    if (!navigator.onLine) {
+      const allPremises = await Store.db.premises.toArray();
+      allPremises.forEach(p => {
+        premisesMap.set(String(p.id), p.name);
+        premisesMap.set(String(p.uuid), p.name);
+      });
+    }
+
     container.innerHTML = events.map(e => {
-      // Формируем текст о перемещении (используем названия из сервера)
+      // Формируем текст о перемещении
       let moveText = '';
       if (e.event_type === 'status_change' && (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
-        const fromName = e.from_premise_name || 'без помещения';
-        const toName = e.to_premise_name || 'без помещения';
+        // В онлайн-режиме используем названия с сервера, в оффлайн - ищем локально
+        let fromName = e.from_premise_name;
+        let toName = e.to_premise_name;
+        
+        if (!navigator.onLine || !fromName) {
+          fromName = premisesMap.get(String(e.from_premise_id)) || premisesMap.get(String(e.from_premise_uuid)) || 'без помещения';
+        }
+        if (!navigator.onLine || !toName) {
+          toName = premisesMap.get(String(e.to_premise_id)) || premisesMap.get(String(e.to_premise_uuid)) || 'без помещения';
+        }
+        
         moveText = `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📍 ${fromName} → ${toName}</div>`;
       }
 
