@@ -1323,18 +1323,27 @@ async function showHeaterDetail(id) {
 async function loadHeaterEvents(heaterId) {
   try {
     let events;
+    let isOnline = navigator.onLine;
+
+    // Сначала пробуем загрузить с сервера
+    if (isOnline) {
+      try {
+        events = await api(`/events?heater_id=${heaterId}&limit=20`);
+      } catch (err) {
+        // Если ошибка сети, переключаемся в оффлайн-режим
+        console.log('[loadHeaterEvents] API error, using offline mode:', err.message);
+        isOnline = false;
+      }
+    }
 
     // В оффлайн загружаем из IndexedDB
-    if (!navigator.onLine) {
+    if (!isOnline) {
       const allEvents = await Store.db.events.toArray();
       // Ищем события по heater_id или heater_uuid
       events = allEvents.filter(e =>
         String(e.heater_id) === String(heaterId) || e.heater_uuid === heaterId
       );
       events = events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20);
-    } else {
-      // Онлайн — загружаем с сервера
-      events = await api(`/events?heater_id=${heaterId}&limit=20`);
     }
 
     const container = $('#heater-events');
@@ -1347,7 +1356,7 @@ async function loadHeaterEvents(heaterId) {
 
     // Для оффлайн-режима загружаем помещения для поиска названий
     let premisesMap = new Map();
-    if (!navigator.onLine) {
+    if (!isOnline) {
       const allPremises = await Store.db.premises.toArray();
       allPremises.forEach(p => {
         premisesMap.set(String(p.id), p.name);
@@ -1359,16 +1368,16 @@ async function loadHeaterEvents(heaterId) {
       // Формируем текст о перемещении
       let moveText = '';
       // Проверяем оба типа событий: premise_change (перемещение) и status_change со сменой помещения
-      if ((e.event_type === 'premise_change' || e.event_type === 'status_change') && 
+      if ((e.event_type === 'premise_change' || e.event_type === 'status_change') &&
           (e.from_premise_id !== e.to_premise_id || e.from_premise_uuid !== e.to_premise_uuid)) {
         // В онлайн-режиме используем названия с сервера, в оффлайн - ищем локально
         let fromName = e.from_premise_name;
         let toName = e.to_premise_name;
 
-        if (!navigator.onLine || !fromName) {
+        if (!isOnline || !fromName) {
           fromName = premisesMap.get(String(e.from_premise_id)) || premisesMap.get(String(e.from_premise_uuid)) || 'без помещения';
         }
-        if (!navigator.onLine || !toName) {
+        if (!isOnline || !toName) {
           toName = premisesMap.get(String(e.to_premise_id)) || premisesMap.get(String(e.to_premise_uuid)) || 'без помещения';
         }
 
