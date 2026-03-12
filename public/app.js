@@ -1303,7 +1303,6 @@ async function showHeaterDetail(id) {
           <button class="btn btn-small ${heater.status === 'active' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'active')">🟢 Активен</button>
           <button class="btn btn-small ${heater.status === 'repair' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'repair')">🟡 Ремонт</button>
           <button class="btn btn-small ${heater.status === 'warehouse' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'warehouse')">🔵 Склад</button>
-          <button class="btn btn-small ${heater.status === 'moved' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'moved')">🟠 Перемещён</button>
         </div>
       </div>
     `;
