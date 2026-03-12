@@ -35,11 +35,11 @@ const Store = {
     // Используем случайные значения для уникальности
     const part1 = Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
     const part2 = Math.floor(Math.random() * 0xFFFF).toString(16).padStart(4, '0');
-    const part3 = Math.floor(Math.random() * 0x0FFF).toString(16).padStart(4, '0'); // 4xxx
-    const part4 = Math.floor(Math.random() * 0x3FFF + 0x8000).toString(16).padStart(4, '0'); // 8/9/a/b
+    const part3 = '4' + Math.floor(Math.random() * 0x0FFF).toString(16).padStart(3, '0'); // 4xxx
+    const part4 = (Math.floor(Math.random() * 0x3FFF) + 0x8000).toString(16).padStart(4, '0'); // 8/9/a/b/c/d/e/f
     const part5 = Math.floor(Math.random() * 0xFFFFFFFFFFFF).toString(16).padStart(12, '0');
-    
-    return `${part1}-${part2}-4${part3.slice(1)}-${part4}-${part5}`;
+
+    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
   },
 
   // Инициализация Dexie
@@ -151,84 +151,123 @@ const Store = {
     const record = await this.prepareRecord(data, false);
     const uuid = record.uuid;
 
-    await this.db[table].add(record);
+    const id = await this.db[table].add(record);
 
-    console.log(`[Store] Created ${table}:${uuid}`, record);
-    return { uuid, ...record };
+    console.log(`[Store] Created ${table}:${uuid} (id=${id})`, record);
+    return { uuid, id, ...record };
   },
 
-  async update(table, uuid, data) {
+  async update(table, key, data) {
     if (!this.db) throw new Error('Store not initialized');
 
-    const existing = await this.db[table].get(uuid);
+    let existing = null;
+
+    // Сначала ищем через toArray, чтобы избежать ошибок с невалидным ключом
+    const all = await this.db[table].toArray();
+    existing = all.find(r => String(r.id) === String(key) || r.uuid === key);
+
     if (!existing) {
-      throw new Error(`Record ${uuid} not found`);
+      throw new Error(`Record ${key} not found`);
     }
 
+    // Используем uuid как ключ для обновления
+    const updateKey = existing.uuid;
     const record = await this.prepareRecord({ ...existing, ...data }, true);
-    await this.db[table].update(uuid, record);
+    await this.db[table].update(updateKey, record);
 
-    console.log(`[Store] Updated ${table}:${uuid}`, record);
-    return { uuid, ...record };
+    console.log(`[Store] Updated ${table}:${updateKey}`, record);
+    return { uuid: existing.uuid, id: existing.id, ...record };
   },
 
-  async delete(table, uuid, softDeleteField = 'deleted_at') {
+  async delete(table, key, softDeleteField = 'deleted_at') {
     if (!this.db) throw new Error('Store not initialized');
 
-    const existing = await this.db[table].get(uuid);
+    let existing = null;
+
+    // Сначала ищем через toArray, чтобы избежать ошибок с невалидным ключом
+    const all = await this.db[table].toArray();
+    existing = all.find(r => String(r.id) === String(key) || r.uuid === key);
+
     if (!existing) {
-      throw new Error(`Record ${uuid} not found`);
+      throw new Error(`Record ${key} not found`);
     }
+
+    // Используем uuid как ключ для обновления
+    const updateKey = existing.uuid;
 
     if (softDeleteField && existing[softDeleteField] !== undefined) {
       // Soft delete - помечаем как удалённую и на синхронизацию
-      await this.db[table].update(uuid, {
+      await this.db[table].update(updateKey, {
         [softDeleteField]: new Date().toISOString(),
         _modified: true,
         _sync_status: 'pending'
       });
     } else {
       // Hard delete
-      await this.db[table].delete(uuid);
+      await this.db[table].delete(updateKey);
     }
 
-    console.log(`[Store] Deleted ${table}:${uuid}`);
-    return uuid;
+    console.log(`[Store] Deleted ${table}:${updateKey}`);
+    return updateKey;
   },
 
   // ===== СИНХРОНИЗАЦИЯ =====
-  
+
   // Пометить запись как синхронизированную
-  async markSynced(table, uuid, serverData = null) {
+  async markSynced(table, key, serverData = null) {
     if (!this.db) throw new Error('Store not initialized');
-    
+
+    let existing = null;
+
+    // Сначала ищем через toArray, чтобы избежать ошибок с невалидным ключом
+    const all = await this.db[table].toArray();
+    existing = all.find(r => String(r.id) === String(key) || r.uuid === key);
+
+    if (!existing) {
+      console.warn(`[Store] Record ${key} not found for markSynced`);
+      return;
+    }
+
+    const updateKey = existing.uuid;
     const updateData = {
       _sync_status: 'synced',
       _modified: false,
       synced_at: new Date().toISOString()
     };
-    
+
     // Если есть данные с сервера - обновляем
     if (serverData) {
       // Сохраняем только поля, которые могут прийти с сервера
       Object.assign(updateData, serverData);
     }
-    
-    await this.db[table].update(uuid, updateData);
-    console.log(`[Store] Marked synced ${table}:${uuid}`);
+
+    await this.db[table].update(updateKey, updateData);
+    console.log(`[Store] Marked synced ${table}:${updateKey}`);
   },
 
   // Пометить запись как ошибку синхронизации
-  async markSyncError(table, uuid, error) {
+  async markSyncError(table, key, error) {
     if (!this.db) throw new Error('Store not initialized');
-    
-    await this.db[table].update(uuid, {
+
+    let existing = null;
+
+    // Сначала ищем через toArray, чтобы избежать ошибок с невалидным ключом
+    const all = await this.db[table].toArray();
+    existing = all.find(r => String(r.id) === String(key) || r.uuid === key);
+
+    if (!existing) {
+      console.warn(`[Store] Record ${key} not found for markSyncError`);
+      return;
+    }
+
+    const updateKey = existing.uuid;
+    await this.db[table].update(updateKey, {
       _sync_status: 'failed',
       _modified: true, // Оставляем modified для повторной попытки
       _sync_error: error,
       _sync_error_at: new Date().toISOString()
     });
-    console.log(`[Store] Sync error ${table}:${uuid} - ${error}`);
+    console.log(`[Store] Sync error ${table}:${updateKey} - ${error}`);
   },
 
   // Получить время последней синхронизации
@@ -244,12 +283,14 @@ const Store = {
   },
 
   // ===== ЗАГРУЗКА С СЕРВЕРА (бэкенд → фронтенд) =====
-  
+
   async syncFromServer(table, serverData) {
     if (!this.db) throw new Error('Store not initialized');
 
     const localRecords = await this.db[table].toArray();
     const updates = [];
+    const toDelete = []; // Локальные дубликаты для удаления
+    const processedLocalUuids = new Set(); // UUID уже обработанных локальных записей
 
     for (const serverRecord of serverData) {
       if (!serverRecord.uuid) {
@@ -257,11 +298,43 @@ const Store = {
         continue;
       }
 
-      const local = localRecords.find(r => r.uuid === serverRecord.uuid);
+      // Ищем локальную запись по UUID
+      let local = localRecords.find(r => r.uuid === serverRecord.uuid);
+      
+      // Если не нашли по UUID, ищем по ID (для помещений и объектов)
+      if (!local && serverRecord.id) {
+        local = localRecords.find(r => r.id === serverRecord.id);
+      }
+
+      // Для помещений: ищем дубликат по имени и object_id/object_uuid
+      if (!local && table === 'premises' && serverRecord.name) {
+        local = localRecords.find(r => 
+          !r.uuid && // Только записи без UUID (локальные)
+          r.name === serverRecord.name &&
+          (r.object_id === serverRecord.object_id || r.object_uuid === serverRecord.object_uuid)
+        );
+        
+        // Если нашли локальный дубликат, обновляем его UUID
+        if (local) {
+          console.log(`[Store] Found local duplicate premise by name: ${local.name}, id=${local.id}, assigning server UUID: ${serverRecord.uuid}`);
+        }
+      }
 
       if (local && local._modified && local._sync_status === 'pending') {
-        // Локальная запись ещё не синхронизирована - пропускаем
-        // Сервер должен был принять её при синхронизации
+        // Локальная запись ещё не синхронизирована - обновляем её серверными данными
+        const mergedRecord = {
+          ...local,
+          ...serverRecord,
+          uuid: serverRecord.uuid, // UUID всегда с сервера
+          id: serverRecord.id, // ID тоже с сервера
+          // Сохраняем локальные значения которые важны (например, note для помещений)
+          note: local.note || serverRecord.note,
+          _sync_status: 'synced',
+          _modified: false, // После синхронизации убираем флаг
+          synced_at: new Date().toISOString()
+        };
+        updates.push(mergedRecord);
+        processedLocalUuids.add(local.uuid);
         continue;
       }
 
@@ -275,6 +348,31 @@ const Store = {
         }
       }
 
+      // Если есть локальная запись с тем же ID но другим UUID - это дубликат
+      if (local && local.id === serverRecord.id && local.uuid !== serverRecord.uuid) {
+        // Нужно объединить записи
+        console.log(`[Store] Merging duplicate ${table} id=${serverRecord.id}: local=${local.uuid}, server=${serverRecord.uuid}`);
+        
+        // Находим все обогреватели, которые ссылаются на это помещение (если это помещение)
+        if (table === 'premises') {
+          const heaters = await this.db.heaters.filter(h => h.premise_id === local.id).toArray();
+          for (const heater of heaters) {
+            // Обновляем обогреватели для ссылки на серверное помещение
+            await this.db.heaters.update(heater.uuid || heater.id, {
+              ...heater,
+              premise_uuid: serverRecord.uuid,
+              premise_id: serverRecord.id,
+              _modified: true,
+              _sync_status: 'pending'
+            });
+          }
+        }
+        
+        // Помечаем локальный дубликат на удаление
+        toDelete.push(local.uuid || local.id);
+        processedLocalUuids.add(local.uuid);
+      }
+
       // Маппинг полей с сервера на клиент
       const mappedRecord = this.mapServerRecord(table, serverRecord);
 
@@ -286,9 +384,56 @@ const Store = {
       });
     }
 
+    // Дополнительно: ищем локальные помещения, которые совпадают с серверными по имени и object_id
+    // и назначаем им серверные UUID и ID
+    if (table === 'premises') {
+      for (const serverRecord of serverData) {
+        // Ищем локальные помещения с тем же именем и object_id (независимо от UUID)
+        const localMatches = localRecords.filter(r =>
+          r.name === serverRecord.name &&
+          (r.object_id === serverRecord.object_id || r.object_uuid === serverRecord.object_uuid)
+        );
+
+        for (const localMatch of localMatches) {
+          // Если это уже серверная запись с тем же UUID - пропускаем
+          if (localMatch.uuid === serverRecord.uuid && localMatch.id === serverRecord.id) {
+            continue;
+          }
+          
+          console.log(`[Store] Merging local premise "${localMatch.name}" (id=${localMatch.id}, uuid=${localMatch.uuid || 'none'}) with server (id=${serverRecord.id}, uuid=${serverRecord.uuid})`);
+
+          // Переназначаем обогреватели на серверное помещение
+          const heaters = await this.db.heaters.filter(h => h.premise_id === localMatch.id).toArray();
+          for (const heater of heaters) {
+            await this.db.heaters.update(heater.uuid || heater.id, {
+              ...heater,
+              premise_uuid: serverRecord.uuid,
+              premise_id: serverRecord.id,
+              // Сохраняем sticker_number
+              sticker_number: heater.sticker_number,
+              _modified: false, // Убираем флаг
+              _sync_status: 'synced'
+            });
+          }
+          
+          // Удаляем локальный дубликат
+          toDelete.push(localMatch.id);
+        }
+      }
+    }
+
+    // Применяем обновления
     if (updates.length > 0) {
       await this.db[table].bulkPut(updates);
       console.log(`[Store] Synced ${updates.length} records from server for ${table}`);
+    }
+
+    // Удаляем дубликаты
+    if (toDelete.length > 0) {
+      for (const key of toDelete) {
+        await this.db[table].delete(key);
+      }
+      console.log(`[Store] Deleted ${toDelete.length} duplicate records for ${table}`);
     }
 
     return updates.length;
@@ -299,9 +444,12 @@ const Store = {
     const mapped = { ...serverRecord };
 
     if (table === 'heaters') {
-      // heater_events → events
+      // Сохраняем UUID помещения и объекта с сервера
       mapped.heater_uuid = serverRecord.uuid;
-      mapped.object_uuid = null; // Будет заполнено при синхронизации объектов
+      mapped.premise_uuid = serverRecord.premise_uuid || null;
+      mapped.object_uuid = serverRecord.object_uuid || null;
+      // Сохраняем sticker_number из JOIN с stickers
+      mapped.sticker_number = serverRecord.sticker_number || null;
     }
 
     if (table === 'heater_events') {
@@ -327,6 +475,31 @@ const Store = {
     const items = await this.getAll('heaters');
     const premises = await this.getAll('premises');
     const objects = await this.getAll('objects');
+    const stickers = await this.getAll('stickers');
+    const events = await this.getAll('events');
+
+    // Создаём мапу heater_uuid -> sticker_number
+    const stickerMap = new Map();
+    stickers.forEach(s => {
+      // Приоритет: heater_uuid, затем heater_id
+      const key = s.heater_uuid || s.heater_id;
+      if (key && !stickerMap.has(key)) {
+        stickerMap.set(key, s.number);
+      }
+    });
+
+    // Создаём мапу heater_uuid -> last_modified (максимальная дата события)
+    const lastModifiedMap = new Map();
+    events.forEach(e => {
+      const key = e.heater_uuid || e.heater_id;
+      if (key) {
+        const existing = lastModifiedMap.get(key);
+        const eventDate = new Date(e.created_at);
+        if (!existing || eventDate > new Date(existing)) {
+          lastModifiedMap.set(key, e.created_at);
+        }
+      }
+    });
 
     // Создаём мапы UUID -> premise и UUID -> object
     const premiseUuidMap = new Map();
@@ -369,6 +542,12 @@ const Store = {
         obj = objectIdMap.get(h.object_id);
       }
 
+      // Получаем sticker_number из мапы (приоритет над локальным)
+      const stickerNumber = stickerMap.get(h.uuid) || stickerMap.get(h.id) || h.sticker_number;
+      
+      // Получаем last_modified из событий или используем updated_at/created_at
+      const lastModified = lastModifiedMap.get(h.uuid) || lastModifiedMap.get(h.id) || h.updated_at || h.created_at;
+
       return {
         ...h,
         premise_id: premise?.id || h.premise_id,
@@ -376,7 +555,9 @@ const Store = {
         premise_uuid: premise?.uuid || h.premise_uuid,
         object_id: obj?.id || h.object_id,
         object_name: obj?.name || h.object_name,
-        object_uuid: obj?.uuid || h.object_uuid
+        object_uuid: obj?.uuid || h.object_uuid,
+        sticker_number: stickerNumber,
+        last_modified: lastModified
       };
     });
 
@@ -395,8 +576,21 @@ const Store = {
       objectIdMap.set(o.id, o);
     });
 
+    // Дедупликация: если есть записи с одинаковым id, оставляем только ту, у которой есть uuid
+    const deduped = new Map();
+    items.forEach(p => {
+      const key = p.id || p.uuid;
+      const existing = deduped.get(key);
+      if (!existing) {
+        deduped.set(key, p);
+      } else if (p.uuid && !existing.uuid) {
+        // Предпочитаем запись с UUID
+        deduped.set(key, p);
+      }
+    });
+
     // Обновляем помещения: добавляем object_id и object_name
-    window.premises = items.filter(p => !p.deleted_at).map(p => {
+    window.premises = Array.from(deduped.values()).filter(p => !p.deleted_at).map(p => {
       // Сначала пробуем найти по UUID
       let obj = objectUuidMap.get(p.object_uuid);
       // Если не нашли, пробуем по ID (для оффлайн-объектов)
@@ -416,7 +610,21 @@ const Store = {
 
   async refreshObjects() {
     const items = await this.getAll('objects');
-    window.objects = items.filter(o => !o.deleted_at);
+    
+    // Дедупликация: если есть записи с одинаковым id, оставляем только ту, у которой есть uuid
+    const deduped = new Map();
+    items.forEach(o => {
+      const key = o.id || o.uuid;
+      const existing = deduped.get(key);
+      if (!existing) {
+        deduped.set(key, o);
+      } else if (o.uuid && !existing.uuid) {
+        // Предпочитаем запись с UUID
+        deduped.set(key, o);
+      }
+    });
+    
+    window.objects = Array.from(deduped.values()).filter(o => !o.deleted_at);
     return window.objects;
   },
 

@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS sync_log (
 CREATE INDEX IF NOT EXISTS idx_sync_log_user ON sync_log (user_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_synced ON sync_log (synced);
 
+COMMENT ON COLUMN sync_log.payload IS 'JSON payload от клиента';
+COMMENT ON COLUMN sync_log.response IS 'JSON ответ сервера';
+
 -- ===== Обновление существующих записей =====
 -- Устанавливаем synced_at = created_at для существующих записей
 UPDATE heaters SET synced_at = created_at WHERE synced_at IS NULL;

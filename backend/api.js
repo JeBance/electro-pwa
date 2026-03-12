@@ -563,8 +563,8 @@ router.get('/heaters', authMiddleware(), async (req, res) => {
     }
     
     let sql = `
-      SELECT h.*, p.name as premise_name, p.number as premise_number,
-             o.name as object_name, o.id as object_id,
+      SELECT h.*, p.name as premise_name, p.number as premise_number, p.uuid as premise_uuid,
+             o.name as object_name, o.id as object_id, o.uuid as object_uuid,
              s.number as sticker_number,
              (SELECT MAX(e.created_at) FROM heater_events e WHERE e.heater_id = h.id) as last_modified
       FROM heaters h
@@ -603,8 +603,8 @@ router.get('/heaters/:id', authMiddleware(), async (req, res) => {
   try {
     const { id } = req.params;
     const result = await query(`
-      SELECT h.*, p.name as premise_name, p.number as premise_number,
-             o.name as object_name, o.id as object_id,
+      SELECT h.*, p.name as premise_name, p.number as premise_number, p.uuid as premise_uuid,
+             o.name as object_name, o.id as object_id, o.uuid as object_uuid,
              s.number as sticker_number
       FROM heaters h
       LEFT JOIN premises p ON h.premise_id = p.id
@@ -1062,51 +1062,5 @@ router.post('/upload', authMiddleware(['admin', 'electrician']), upload.single('
 // ===== НОВЫЙ ENDPOINT СИНХРОНИЗАЦИИ (UUID-based) =====
 const { setupSyncEndpoint } = require('./sync-endpoint');
 setupSyncEndpoint(router);
-
-// Get all stickers
-router.get('/stickers', authMiddleware(), async (req, res) => {
-  try {
-    const result = await query('SELECT * FROM stickers ORDER BY id');
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Get stickers error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get all events
-router.get('/events', authMiddleware(), async (req, res) => {
-  try {
-    const { heater_id, limit } = req.query;
-    let sql = `
-      SELECT e.*, u.login as user_name, h.name as heater_name,
-             fp.name as from_premise_name, tp.name as to_premise_name
-      FROM heater_events e
-      LEFT JOIN users u ON e.user_id = u.id
-      LEFT JOIN heaters h ON e.heater_id = h.id
-      LEFT JOIN premises fp ON e.from_premise_id = fp.id
-      LEFT JOIN premises tp ON e.to_premise_id = tp.id
-      WHERE 1=1
-    `;
-    const params = [];
-    let paramIndex = 1;
-    
-    if (heater_id) {
-      sql += ` AND e.heater_id = $${paramIndex++}`;
-      params.push(heater_id);
-    }
-    sql += ' ORDER BY e.created_at DESC';
-    if (limit) {
-      sql += ` LIMIT $${paramIndex++}`;
-      params.push(parseInt(limit));
-    }
-    
-    const result = await query(sql, params);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Get events error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 module.exports = router;

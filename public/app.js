@@ -9,6 +9,8 @@ let filterStatus = '';
 let filterObject = '';
 let filterPremise = '';
 let searchQuery = '';
+let premiseSortField = 'name'; // 'name', 'number', 'object_name', 'last_modified'
+let premiseSortDir = 'asc';
 
 // API base URL
 const API_BASE = '';
@@ -278,7 +280,59 @@ function renderPremisesView() {
     }
   });
 
+  // Сортируем помещения
+  const sortedPremises = [...window.premises].sort((a, b) => {
+    let aVal, bVal;
+    
+    if (premiseSortField === 'name') {
+      aVal = a.name || '';
+      bVal = b.name || '';
+    } else if (premiseSortField === 'number') {
+      aVal = a.number || '';
+      bVal = b.number || '';
+    } else if (premiseSortField === 'object_name') {
+      aVal = a.object_name || '';
+      bVal = b.object_name || '';
+    } else if (premiseSortField === 'last_modified') {
+      // Получаем последнее изменение из обогревателей этого помещения
+      const premiseHeaters = premiseMap.get(a.uuid) || premiseMap.get(a.id) || [];
+      const aLastMod = premiseHeaters.length > 0 
+        ? Math.max(...premiseHeaters.map(h => new Date(h.last_modified || h.created_at).getTime()))
+        : 0;
+      const bHeaters = premiseMap.get(b.uuid) || premiseMap.get(b.id) || [];
+      const bLastMod = bHeaters.length > 0 
+        ? Math.max(...bHeaters.map(h => new Date(h.last_modified || h.created_at).getTime()))
+        : 0;
+      return premiseSortDir === 'asc' ? aLastMod - bLastMod : bLastMod - aLastMod;
+    }
+    
+    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+    
+    if (aVal < bVal) return premiseSortDir === 'asc' ? -1 : 1;
+    if (aVal > bVal) return premiseSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   let html = '';
+  
+  // Панель сортировки
+  const sortIndicators = {
+    name: premiseSortField === 'name' ? (premiseSortDir === 'asc' ? ' ↑' : ' ↓') : '',
+    number: premiseSortField === 'number' ? (premiseSortDir === 'asc' ? ' ↑' : ' ↓') : '',
+    object_name: premiseSortField === 'object_name' ? (premiseSortDir === 'asc' ? ' ↑' : ' ↓') : '',
+    last_modified: premiseSortField === 'last_modified' ? (premiseSortDir === 'asc' ? ' ↑' : ' ↓') : ''
+  };
+  
+  html += `
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;color:var(--text-secondary)">Сортировка вагонов:</span>
+      <button class="btn btn-secondary btn-small" onclick="togglePremiseSort('name')">По названию${sortIndicators.name}</button>
+      <button class="btn btn-secondary btn-small" onclick="togglePremiseSort('number')">По номеру${sortIndicators.number}</button>
+      <button class="btn btn-secondary btn-small" onclick="togglePremiseSort('object_name')">По объекту${sortIndicators.object_name}</button>
+      <button class="btn btn-secondary btn-small" onclick="togglePremiseSort('last_modified')">По изменению${sortIndicators.last_modified}</button>
+    </div>
+  `;
 
   // Group without premise
   const noPremise = premiseMap.get(0) || [];
@@ -289,8 +343,8 @@ function renderPremisesView() {
     </div>`;
   }
 
-  // Group by known premises
-  window.premises.forEach(p => {
+  // Group by sorted premises
+  sortedPremises.forEach(p => {
     // Ищем обогреватели по UUID или ID помещения
     const items = premiseMap.get(p.uuid) || premiseMap.get(p.id) || [];
     if (items.length === 0) return;
@@ -306,32 +360,7 @@ function renderPremisesView() {
             <span class="card-subtitle">${p.number || ''}</span>
             ${hasNote ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">📝 ${notePreview}</div>` : ''}
           </div>
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-secondary btn-small" onclick="showPremiseNoteModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.note ? p.note.replace(/'/g, "\\'") : ''}')" title="Заметка">📝</button>
-          </div>
-        </div>
-        ${items.map(h => renderHeaterItem(h)).join('')}
-      </div>
-    `;
-  });
-
-  // Group heaters with unknown premises (offline-created premises)
-  premiseMap.forEach((items, key) => {
-    // Skip if already rendered (key is 0 or known premise ID)
-    if (key === 0) return;
-    const knownPremise = window.premises.find(p => p.id === key);
-    if (knownPremise) return;
-
-    // This is an offline-created premise - show with premise_name from heater
-    const premiseName = items[0]?.premise_name || 'Помещение #' + key;
-    
-    html += `
-      <div class="card">
-        <div class="card-header">
-          <div style="flex:1">
-            <span class="card-title">${premiseName}</span>
-            <span class="card-subtitle">(офлайн)</span>
-          </div>
+          <button class="btn btn-secondary btn-small" onclick="showPremiseNoteModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.note ? p.note.replace(/'/g, "\\'") : ''}')" title="Заметка">📝</button>
         </div>
         ${items.map(h => renderHeaterItem(h)).join('')}
       </div>
@@ -377,15 +406,21 @@ function renderHeaterItem(h) {
   const sticker = h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span> ` : '';
   const icon = getHeaterIcon(h.protection_type);
   const heaterId = String(h.id).startsWith('local_') ? `'${h.id}'` : h.id;
-  
-  // Индикатор синхронизации
+
+  // Индикатор синхронизации - показываем только если _sync_status === 'pending' или 'failed'
+  // _modified не показываем, так как это технический флаг
   let syncIndicator = '';
-  if (h._sync_status === 'pending' || h._modified) {
+  if (h._sync_status === 'pending') {
     syncIndicator = '<span class="sync-indicator pending" title="Ожидает синхронизации">⏳</span>';
   } else if (h._sync_status === 'failed') {
     syncIndicator = '<span class="sync-indicator failed" title="Ошибка синхронизации">❌</span>';
   }
-  
+
+  // Кнопка удаления для админа
+  const deleteButton = currentUser?.role === 'admin' ? `
+    <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteHeater(${heaterId})" title="Удалить" style="margin-right:8px">🗑️</button>
+  ` : '';
+
   return `
     <div class="list-item" onclick="showHeaterDetail(${heaterId})">
       <div class="list-item-icon">${icon}</div>
@@ -393,7 +428,10 @@ function renderHeaterItem(h) {
         <div class="list-item-title">${sticker}${h.name} ${syncIndicator}</div>
         <div class="list-item-subtitle">${h.serial || 'Б/Н'} • ${h.power_w ? h.power_w + ' Вт' : ''}</div>
       </div>
-      ${getStatusBadge(h.status)}
+      <div style="display:flex;align-items:center;gap:8px">
+        ${deleteButton}
+        ${getStatusBadge(h.status)}
+      </div>
     </div>
   `;
 }
@@ -404,6 +442,16 @@ function toggleSort(field) {
   } else {
     sortField = field;
     sortDir = 'asc';
+  }
+  render();
+}
+
+function togglePremiseSort(field) {
+  if (premiseSortField === field) {
+    premiseSortDir = premiseSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    premiseSortField = field;
+    premiseSortDir = 'asc';
   }
   render();
 }
@@ -487,7 +535,11 @@ function renderListView() {
             </tr>
           </thead>
           <tbody>
-            ${filtered.map(h => `
+            ${filtered.map(h => {
+              const deleteBtn = currentUser?.role === 'admin' 
+                ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteHeater(${h.id})" title="Удалить">🗑️</button>`
+                : '';
+              return `
               <tr onclick="showHeaterDetail(${h.id})" style="cursor:pointer">
                 <td>${h.sticker_number ? `<span class="sticker-number">${h.sticker_number}</span>` : '—'}</td>
                 <td>${h.premise_name || '—'}</td>
@@ -501,11 +553,9 @@ function renderListView() {
                 <td>${formatDate(h.decommission_date)}</td>
                 <td>${formatDate(h.last_modified)}</td>
                 <td>${getStatusBadge(h.status)}</td>
-                <td onclick="event.stopPropagation()">
-                  <button class="btn btn-danger btn-small" onclick="deleteHeater(${h.id})" title="Удалить">🗑️</button>
-                </td>
+                <td onclick="event.stopPropagation()">${deleteBtn}</td>
               </tr>
-            `).join('')}
+            `}).join('')}
           </tbody>
         </table>
       </div>
@@ -773,8 +823,11 @@ function showModal(content) {
 }
 
 function closeModal() {
-  const modal = $('.modal-overlay');
-  if (modal) modal.remove();
+  const modals = $$('.modal-overlay');
+  if (modals.length > 0) {
+    // Закрываем последнее открытое модальное окно
+    modals[modals.length - 1].remove();
+  }
 }
 
 async function showAddHeaterModal() {
@@ -1092,6 +1145,26 @@ async function handleAddHeater(e) {
     // Создаём обогреватель через Store (с UUID)
     const result = await Store.create('heaters', heaterData);
 
+    // Создаём событие о создании обогревателя
+    await Store.db.events.add({
+      uuid: Store.generateUUIDSync(),
+      heater_uuid: result.uuid,
+      heater_id: result.id,
+      user_uuid: currentUser?.uuid,
+      user_id: currentUser?.id,
+      event_type: 'status_change',
+      from_premise_uuid: null,
+      from_premise_id: null,
+      to_premise_uuid: heaterData.premise_uuid,
+      to_premise_id: heaterData.premise_id,
+      old_status: null,
+      new_status: heaterData.status,
+      comment: `Обогреватель "${heaterData.name}" создан`,
+      created_at: new Date().toISOString(),
+      _sync_status: 'pending',
+      _modified: true
+    });
+
     // Создаём наклейку в IndexedDB
     if (heaterData.sticker_number) {
       await Store.db.stickers.add({
@@ -1103,8 +1176,8 @@ async function handleAddHeater(e) {
         electrician_id: currentUser?.id,
         electrician_uuid: currentUser?.uuid,
         created_at: new Date().toISOString(),
-        _sync_status: 'synced',
-        _modified: false
+        _sync_status: 'pending',
+        _modified: true
       });
     }
 
@@ -1220,7 +1293,22 @@ async function showHeaterDetail(id) {
 
   if (currentUser?.role !== 'commander') {
     const heaterId = String(heater.id).startsWith('local_') ? `'${heater.id}'` : heater.id;
+    
+    // Кнопки для изменения статуса
+    const statusButtons = `
+      <div style="margin-top:16px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Изменить статус:</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-small ${heater.status === 'active' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'active')">🟢 Активен</button>
+          <button class="btn btn-small ${heater.status === 'repair' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'repair')">🟡 Ремонт</button>
+          <button class="btn btn-small ${heater.status === 'warehouse' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'warehouse')">🔵 Склад</button>
+          <button class="btn btn-small ${heater.status === 'moved' ? 'btn-primary' : 'btn-secondary'}" onclick="changeHeaterStatus(${heaterId}, 'moved')">🟠 Перемещён</button>
+        </div>
+      </div>
+    `;
+    
     html += `
+      ${statusButtons}
       <div style="margin-top:16px;display:flex;gap:8px">
         <button class="btn btn-secondary btn-small" onclick="showEditHeaterModal(${heaterId})">Редактировать</button>
         <button class="btn btn-secondary btn-small" onclick="showHistoryModal(${heaterId})">История</button>
@@ -1234,18 +1322,20 @@ async function showHeaterDetail(id) {
 async function loadHeaterEvents(heaterId) {
   try {
     let events;
-    
+
     // В оффлайн загружаем из IndexedDB
     if (!navigator.onLine) {
-      events = await Store.db.events
-        .filter(e => String(e.heater_id) === String(heaterId))
-        .sortBy('created_at');
-      events = events.reverse().slice(0, 20);
+      const allEvents = await Store.db.events.toArray();
+      // Ищем события по heater_id или heater_uuid
+      events = allEvents.filter(e => 
+        String(e.heater_id) === String(heaterId) || e.heater_uuid === heaterId
+      );
+      events = events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20);
     } else {
       // Онлайн — загружаем с сервера
       events = await api(`/events?heater_id=${heaterId}&limit=20`);
     }
-    
+
     const container = $('#heater-events');
     if (!container) return;
 
@@ -1271,8 +1361,33 @@ async function loadHeaterEvents(heaterId) {
 async function deleteHeater(id) {
   if (!confirm('Удалить обогреватель? Данные можно будет восстановить.')) return;
   try {
+    // Получаем данные обогревателя перед удалением
+    const existingHeater = window.heaters.find(h => h.id === id || h.uuid === id);
+    
     // Soft delete в IndexedDB
     await Store.update('heaters', id, { deleted_at: new Date().toISOString() });
+
+    // Создаём событие об удалении обогревателя
+    if (existingHeater) {
+      await Store.db.events.add({
+        uuid: Store.generateUUIDSync(),
+        heater_uuid: existingHeater.uuid,
+        heater_id: id,
+        user_uuid: currentUser?.uuid,
+        user_id: currentUser?.id,
+        event_type: 'status_change',
+        from_premise_uuid: existingHeater.premise_uuid,
+        from_premise_id: existingHeater.premise_id,
+        to_premise_uuid: null,
+        to_premise_id: null,
+        old_status: existingHeater.status,
+        new_status: 'deleted',
+        comment: `Обогреватель "${existingHeater.name}" удалён`,
+        created_at: new Date().toISOString(),
+        _sync_status: 'pending',
+        _modified: true
+      });
+    }
 
     // Обновляем ВСЕ данные
     await loadLocalData();
@@ -1291,9 +1406,15 @@ async function showEditHeaterModal(id) {
   // Try to find heater in local cache first
   let heater = window.heaters.find(h => h.id === id);
 
-  // If not found in global array, try IndexedDB (for offline-created heaters)
+  // If not found in global array, try IndexedDB by id
   if (!heater) {
     heater = await Store.db.heaters.get(id);
+  }
+  
+  // If still not found, try to find by uuid or id in IndexedDB
+  if (!heater) {
+    const allHeaters = await Store.db.heaters.toArray();
+    heater = allHeaters.find(h => String(h.id) === String(id) || h.uuid === id);
   }
 
   // If still not found and online, try to load from API
@@ -1505,11 +1626,55 @@ async function handleEditHeater(e, id) {
   };
 
   try {
+    // Получаем текущие данные обогревателя для сравнения
+    const existingHeater = window.heaters.find(h => h.id === id || h.uuid === id);
+    
     // Обновляем через Store
     await Store.update('heaters', id, data);
 
+    // Создаём событие об изменении обогревателя
+    const changes = [];
+    if (existingHeater) {
+      if (existingHeater.name !== data.name) changes.push(`название: "${existingHeater.name}" → "${data.name}"`);
+      if (existingHeater.serial !== data.serial) changes.push(`серийный номер: "${existingHeater.serial}" → "${data.serial}"`);
+      if (existingHeater.status !== data.status) changes.push(`статус: "${existingHeater.status}" → "${data.status}"`);
+      if (existingHeater.premise_name !== (await Store.db.premises.get(data.premise_id))?.name) {
+        const newPremise = await Store.db.premises.get(data.premise_id);
+        changes.push(`помещение: "${existingHeater.premise_name}" → "${newPremise?.name || 'без помещения'}"`);
+      }
+    }
+
+    if (changes.length > 0) {
+      await Store.db.events.add({
+        uuid: Store.generateUUIDSync(),
+        heater_uuid: existingHeater?.uuid || data.premise_uuid,
+        heater_id: id,
+        user_uuid: currentUser?.uuid,
+        user_id: currentUser?.id,
+        event_type: 'status_change',
+        from_premise_uuid: existingHeater?.premise_uuid,
+        from_premise_id: existingHeater?.premise_id,
+        to_premise_uuid: data.premise_uuid,
+        to_premise_id: data.premise_id,
+        old_status: existingHeater?.status,
+        new_status: data.status,
+        comment: `Обогреватель изменён: ${changes.join(', ')}`,
+        created_at: new Date().toISOString(),
+        _sync_status: 'pending',
+        _modified: true
+      });
+    }
+
     // Обновляем ВСЕ данные
     await loadLocalData();
+
+    // Обновляем selectedHeater если редактировали текущий обогреватель
+    if (selectedHeater && (selectedHeater.id === id || selectedHeater.uuid === id)) {
+      const updatedHeater = window.heaters.find(h => h.id === id || h.uuid === id);
+      if (updatedHeater) {
+        selectedHeater = updatedHeater;
+      }
+    }
 
     // Close modal
     const modal = form.closest('.modal-overlay');
@@ -2416,6 +2581,7 @@ initApp();
 window.showUserObjectsModal = showUserObjectsModal;
 window.saveUserObjects = saveUserObjects;
 window.toggleSort = toggleSort;
+window.togglePremiseSort = togglePremiseSort;
 window.setFilter = setFilter;
 window.renderHeaters = renderHeaters;
 window.handleEditHeater = handleEditHeater;
@@ -2434,6 +2600,66 @@ window.showEditHeaterModal = showEditHeaterModal;
 window.showHistoryModal = showHistoryModal;
 window.showQueueDetails = showQueueDetails;
 window.clearQueueAndData = clearQueueAndData;
+window.changeHeaterStatus = changeHeaterStatus;
+
+// Изменение статуса обогревателя
+async function changeHeaterStatus(heaterId, newStatus) {
+  try {
+    // Получаем текущие данные обогревателя
+    const heater = window.heaters.find(h => h.id === heaterId || h.uuid === heaterId) ||
+                   await Store.db.heaters.get(heaterId);
+    
+    if (!heater) {
+      showToast('Обогреватель не найден');
+      return;
+    }
+    
+    // Обновляем статус
+    await Store.update('heaters', heaterId, { status: newStatus });
+    
+    // Создаём событие об изменении статуса
+    const statusNames = {
+      active: 'активен',
+      repair: 'в ремонте',
+      warehouse: 'на складе',
+      moved: 'перемещён'
+    };
+    
+    await Store.db.events.add({
+      uuid: Store.generateUUIDSync(),
+      heater_uuid: heater.uuid,
+      heater_id: heaterId,
+      user_uuid: currentUser?.uuid,
+      user_id: currentUser?.id,
+      event_type: 'status_change',
+      from_premise_uuid: heater.premise_uuid,
+      from_premise_id: heater.premise_id,
+      to_premise_uuid: heater.premise_uuid,
+      to_premise_id: heater.premise_id,
+      old_status: heater.status,
+      new_status: newStatus,
+      comment: `Статус изменён с "${statusNames[heater.status] || heater.status}" на "${statusNames[newStatus] || newStatus}"`,
+      created_at: new Date().toISOString(),
+      _sync_status: 'pending',
+      _modified: true
+    });
+    
+    // Обновляем данные
+    await loadLocalData();
+    
+    // Закрываем модальное окно если открыто
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) {
+      modal.remove();
+    }
+    
+    render();
+    showToast(`Статус изменён на "${statusNames[newStatus] || newStatus}"`);
+  } catch (err) {
+    console.error('[changeHeaterStatus] error:', err);
+    showToast(`Ошибка: ${err.message}`);
+  }
+}
 
 // Force sync function (for manual trigger)
 async function forceSync() {
@@ -2515,3 +2741,95 @@ async function clearQueueAndData() {
     showToast(`Ошибка: ${err.message}`);
   }
 }
+
+// Очистка дубликатов помещений
+async function cleanDuplicatePremises() {
+  try {
+    const premises = await Store.db.premises.toArray();
+    const objects = await Store.db.objects.toArray();
+    
+    // Группируем по имени + object_id
+    const groups = new Map();
+    premises.forEach(p => {
+      const key = `${p.name}|${p.object_id || p.object_uuid || 'no-object'}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    });
+    
+    let deletedCount = 0;
+    for (const [key, group] of groups) {
+      if (group.length > 1) {
+        // Оставляем запись с UUID, удаляем без UUID
+        const withUuid = group.find(p => p.uuid);
+        const withoutUuid = group.filter(p => !p.uuid);
+        
+        for (const p of withoutUuid) {
+          // Переназначаем обогреватели на запись с UUID
+          if (withUuid) {
+            const heaters = await Store.db.heaters.filter(h => h.premise_id === p.id).toArray();
+            for (const h of heaters) {
+              await Store.db.heaters.update(h.uuid || h.id, {
+                ...h,
+                premise_uuid: withUuid.uuid,
+                premise_id: withUuid.id
+              });
+            }
+          }
+          await Store.db.premises.delete(p.id);
+          deletedCount++;
+        }
+      }
+    }
+    
+    await loadLocalData();
+    AppLogs.success(`Удалено дубликатов: ${deletedCount}`);
+    showToast(`Удалено дубликатов: ${deletedCount}`);
+    render();
+  } catch (err) {
+    AppLogs.error(`Ошибка очистки: ${err.message}`);
+    showToast(`Ошибка: ${err.message}`);
+  }
+}
+
+// Полная очистка всех данных (IndexedDB + кэш)
+async function cleanAllFrontendData() {
+  if (!confirm('⚠️ Внимание!\n\nЭто удалит:\n- Все локальные данные (обогреватели, объекты, помещения, наклейки)\n- Кэш Service Worker\n- localStorage\n\nДанные на сервере НЕ будут затронуты.\n\nПродолжить?')) {
+    return;
+  }
+
+  try {
+    // Очищаем IndexedDB
+    if (window.Store && window.Store.db) {
+      await window.Store.db.heaters.clear();
+      await window.Store.db.premises.clear();
+      await window.Store.db.objects.clear();
+      await window.Store.db.stickers.clear();
+      await window.Store.db.events.clear();
+      await window.Store.db.users.clear();
+      await window.Store.db.userObjects.clear();
+      await window.Store.db.syncState.clear();
+    }
+    
+    // Очищаем кэш Service Worker
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      for (const cacheName of cacheNames) {
+        await caches.delete(cacheName);
+      }
+    }
+    
+    // Перезагружаем данные
+    await loadLocalData();
+    
+    AppLogs.success('Все данные очищены');
+    showToast('Все данные очищены. Перезагрузите страницу.');
+    render();
+  } catch (err) {
+    AppLogs.error(`Ошибка очистки: ${err.message}`);
+    showToast(`Ошибка: ${err.message}`);
+  }
+}
+
+// Экспорт для консоли
+window.cleanDuplicatePremises = cleanDuplicatePremises;
+window.cleanAllFrontendData = cleanAllFrontendData;
