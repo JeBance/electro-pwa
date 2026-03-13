@@ -909,14 +909,15 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
                   parseInt(counts.rows[0].users);
 
     // Очищаем таблицы в правильном порядке (из-за внешних ключей)
-    await client.query('TRUNCATE TABLE heater_events RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE stickers RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE heaters RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE premises RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE objects RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE user_objects RESTART IDENTITY CASCADE');
+    // Используем TRUNCATE без RESTART IDENTITY чтобы избежать проблем с правами
+    await client.query('TRUNCATE TABLE heater_events CASCADE');
+    await client.query('TRUNCATE TABLE stickers CASCADE');
+    await client.query('TRUNCATE TABLE heaters CASCADE');
+    await client.query('TRUNCATE TABLE premises CASCADE');
+    await client.query('TRUNCATE TABLE objects CASCADE');
+    await client.query('TRUNCATE TABLE user_objects CASCADE');
     if (hasSyncLog) {
-      await client.query('TRUNCATE TABLE sync_log RESTART IDENTITY CASCADE');
+      await client.query('TRUNCATE TABLE sync_log CASCADE');
     }
 
     // Удаляем всех пользователей кроме admin
