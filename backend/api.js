@@ -873,27 +873,31 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
+
     let deleted = 0;
-    
+
     // Считаем удаляемые записи
     const counts = await client.query(`
-      SELECT 
+      SELECT
         (SELECT COUNT(*) FROM heaters) as heaters,
         (SELECT COUNT(*) FROM premises) as premises,
         (SELECT COUNT(*) FROM objects) as objects,
         (SELECT COUNT(*) FROM stickers) as stickers,
         (SELECT COUNT(*) FROM heater_events) as events,
-        (SELECT COUNT(*) FROM user_objects) as user_objects
+        (SELECT COUNT(*) FROM user_objects) as user_objects,
+        (SELECT COUNT(*) FROM sync_log) as sync_log,
+        (SELECT COUNT(*) FROM users WHERE login != 'admin') as users
     `);
-    
-    const total = parseInt(counts.rows[0].heaters) + 
-                  parseInt(counts.rows[0].premises) + 
-                  parseInt(counts.rows[0].objects) + 
-                  parseInt(counts.rows[0].stickers) + 
-                  parseInt(counts.rows[0].events) + 
-                  parseInt(counts.rows[0].user_objects);
-    
+
+    const total = parseInt(counts.rows[0].heaters) +
+                  parseInt(counts.rows[0].premises) +
+                  parseInt(counts.rows[0].objects) +
+                  parseInt(counts.rows[0].stickers) +
+                  parseInt(counts.rows[0].events) +
+                  parseInt(counts.rows[0].user_objects) +
+                  parseInt(counts.rows[0].sync_log) +
+                  parseInt(counts.rows[0].users);
+
     // Очищаем таблицы в правильном порядке (из-за внешних ключей)
     await client.query('TRUNCATE TABLE heater_events RESTART IDENTITY CASCADE');
     await client.query('TRUNCATE TABLE stickers RESTART IDENTITY CASCADE');
@@ -901,13 +905,14 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
     await client.query('TRUNCATE TABLE premises RESTART IDENTITY CASCADE');
     await client.query('TRUNCATE TABLE objects RESTART IDENTITY CASCADE');
     await client.query('TRUNCATE TABLE user_objects RESTART IDENTITY CASCADE');
-    
+    await client.query('TRUNCATE TABLE sync_log RESTART IDENTITY CASCADE');
+
     // Удаляем всех пользователей кроме admin
     const usersResult = await client.query("DELETE FROM users WHERE login != 'admin'");
     deleted = total + usersResult.rowCount;
-    
+
     await client.query('COMMIT');
-    
+
     console.log(`[Admin] Database cleared: ${deleted} records deleted`);
     res.json({ success: true, deleted });
   } catch (err) {
