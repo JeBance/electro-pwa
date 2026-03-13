@@ -1953,7 +1953,19 @@ function toggleShowDeleted() {
 
 async function exportDatabase() {
   try {
-    const data = await api('/export');
+    // Используем fetch напрямую для получения файла
+    const response = await fetch(`${API_BASE}/api/export`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Ошибка экспорта');
+    }
+    
+    const data = await response.json();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1961,9 +1973,21 @@ async function exportDatabase() {
     a.download = `electro-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Экспорт выполнен');
+    
+    const recordCount = {
+      objects: data.objects?.length || 0,
+      premises: data.premises?.length || 0,
+      heaters: data.heaters?.length || 0,
+      stickers: data.stickers?.length || 0,
+      events: data.events?.length || 0,
+      users: data.users?.length || 0
+    };
+    
+    showToast(`Экспорт выполнен: ${Object.entries(recordCount).map(([k,v]) => `${k}: ${v}`).join(', ')}`);
+    if (window.AppLogs) AppLogs.success(`Экспорт БД: ${JSON.stringify(recordCount)}`);
   } catch (err) {
-    showToast(err.message);
+    showToast('Ошибка экспорта: ' + err.message);
+    if (window.AppLogs) AppLogs.error('Экспорт БД: ' + err.message);
   }
 }
 
@@ -2060,27 +2084,45 @@ async function handleImport() {
     showToast('Выберите файл');
     return;
   }
-  
+
   try {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        const response = await api('/import', {
+        
+        // Используем fetch напрямую для POST запроса
+        const response = await fetch(`${API_BASE}/api/import`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
           body: JSON.stringify(data)
         });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Ошибка импорта');
+        }
+        
+        const result = await response.json();
         closeModal();
-        showToast(`Импорт выполнен: ${Object.entries(response.imported).map(([k,v]) => `${k}: ${v}`).join(', ')}`);
+        showToast(`Импорт выполнен: ${Object.entries(result.imported).map(([k,v]) => `${k}: ${v}`).join(', ')}`);
         await loadLocalData();
-        await loadAdminData();
+        if (typeof loadAdminData === 'function') {
+          await loadAdminData();
+        }
+        render();
       } catch (err) {
         showToast('Ошибка импорта: ' + err.message);
+        if (window.AppLogs) AppLogs.error('Импорт БД: ' + err.message);
       }
     };
     reader.readAsText(file);
   } catch (err) {
     showToast('Ошибка чтения файла: ' + err.message);
+    if (window.AppLogs) AppLogs.error('Чтение файла импорта: ' + err.message);
   }
 }
 
