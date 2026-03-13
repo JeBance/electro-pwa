@@ -876,6 +876,16 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
 
     let deleted = 0;
 
+    // Проверяем существование таблицы sync_log
+    const syncLogExists = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'sync_log'
+      )
+    `);
+    const hasSyncLog = syncLogExists.rows[0].exists;
+
     // Считаем удаляемые записи
     const counts = await client.query(`
       SELECT
@@ -885,7 +895,7 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
         (SELECT COUNT(*) FROM stickers) as stickers,
         (SELECT COUNT(*) FROM heater_events) as events,
         (SELECT COUNT(*) FROM user_objects) as user_objects,
-        (SELECT COUNT(*) FROM sync_log) as sync_log,
+        ${hasSyncLog ? "(SELECT COUNT(*) FROM sync_log) as sync_log," : ""}
         (SELECT COUNT(*) FROM users WHERE login != 'admin') as users
     `);
 
@@ -895,7 +905,7 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
                   parseInt(counts.rows[0].stickers) +
                   parseInt(counts.rows[0].events) +
                   parseInt(counts.rows[0].user_objects) +
-                  parseInt(counts.rows[0].sync_log) +
+                  (hasSyncLog ? parseInt(counts.rows[0].sync_log) : 0) +
                   parseInt(counts.rows[0].users);
 
     // Очищаем таблицы в правильном порядке (из-за внешних ключей)
@@ -905,7 +915,9 @@ router.post('/admin/clear-database', authMiddleware(['admin']), async (req, res)
     await client.query('TRUNCATE TABLE premises RESTART IDENTITY CASCADE');
     await client.query('TRUNCATE TABLE objects RESTART IDENTITY CASCADE');
     await client.query('TRUNCATE TABLE user_objects RESTART IDENTITY CASCADE');
-    await client.query('TRUNCATE TABLE sync_log RESTART IDENTITY CASCADE');
+    if (hasSyncLog) {
+      await client.query('TRUNCATE TABLE sync_log RESTART IDENTITY CASCADE');
+    }
 
     // Удаляем всех пользователей кроме admin
     const usersResult = await client.query("DELETE FROM users WHERE login != 'admin'");

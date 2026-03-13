@@ -2025,22 +2025,41 @@ async function clearIndexedDB() {
 
 async function clearServerDatabase() {
   if (!confirm('⚠️ Вы уверены, что хотите очистить всю базу данных на сервере? Это действие необратимо!\n\nБудут удалены:\n- Все обогреватели\n- Все помещения\n- Все объекты\n- Все события истории\n- Все пользователи (кроме admin)')) return;
-  
+
   try {
-    const response = await fetch('/api/admin/clear-database', {
+    const response = await fetch(`${API_BASE}/api/admin/clear-database`, {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
     });
+
+    // Проверяем, что ответ JSON
+    const contentType = response.headers.get('content-type');
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Ошибка сервера');
+      // Пытаемся получить ошибку, но аккуратно
+      if (contentType && contentType.includes('application/json')) {
+        const error = await response.json();
+        throw new Error(error.error || error.message || 'Ошибка сервера');
+      } else {
+        // Сервер вернул HTML (ошибка 404, 500 и т.д.)
+        const text = await response.text();
+        console.error('[clearServerDatabase] Server error:', response.status, text.substring(0, 200));
+        throw new Error(`Ошибка сервера: ${response.status} ${response.statusText}`);
+      }
     }
-    
+
+    // Проверяем, что ответ JSON
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('[clearServerDatabase] Unexpected response:', text.substring(0, 200));
+      throw new Error('Сервер вернул некорректный ответ');
+    }
+
     const result = await response.json();
-    
+
     // Очищаем локальную IndexedDB после очистки сервера
     if (window.Store && window.Store.db) {
       await window.Store.db.heaters.clear();
@@ -2051,10 +2070,10 @@ async function clearServerDatabase() {
       await window.Store.db.users.clear();
       await window.Store.db.userObjects.clear();
     }
-    
+
     await loadLocalData();
     render();
-    
+
     showToast(`✅ БД очищена: ${result.deleted || 0} записей удалено`);
     if (window.AppLogs) AppLogs.success(`БД на сервере очищена: ${result.deleted || 0} записей`);
   } catch (err) {
