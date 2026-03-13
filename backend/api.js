@@ -837,15 +837,16 @@ router.post('/heaters/:id/restore', authMiddleware(['admin']), async (req, res) 
 // Export database to JSON
 router.get('/export', authMiddleware(['admin']), async (req, res) => {
   try {
-    const [objects, premises, heaters, stickers, events, users] = await Promise.all([
+    const [objects, premises, heaters, stickers, events, users, userObjects] = await Promise.all([
       query('SELECT * FROM objects ORDER BY id'),
       query('SELECT * FROM premises ORDER BY id'),
       query('SELECT * FROM heaters ORDER BY id'),
       query('SELECT * FROM stickers ORDER BY id'),
       query('SELECT * FROM heater_events ORDER BY id'),
-      query('SELECT id, login, role, created_at FROM users ORDER BY id')
+      query('SELECT * FROM users ORDER BY id'),
+      query('SELECT * FROM user_objects ORDER BY id')
     ]);
-    
+
     const exportData = {
       version: '1.0',
       exported_at: new Date().toISOString(),
@@ -854,9 +855,10 @@ router.get('/export', authMiddleware(['admin']), async (req, res) => {
       heaters: heaters.rows,
       stickers: stickers.rows,
       events: events.rows,
-      users: users.rows
+      users: users.rows,
+      user_objects: userObjects.rows
     };
-    
+
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="electro-backup.json"');
     res.json(exportData);
@@ -922,81 +924,108 @@ router.post('/import', authMiddleware(['admin']), async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    
+
     const data = req.body;
-    let imported = { objects: 0, premises: 0, heaters: 0, stickers: 0, events: 0, users: 0 };
-    
+    let imported = { objects: 0, premises: 0, heaters: 0, stickers: 0, events: 0, users: 0, user_objects: 0 };
+
+    // Import users (полные данные)
+    if (data.users) {
+      for (const u of data.users) {
+        await client.query(
+          `INSERT INTO users (id, uuid, login, password_hash, role, created_at, deleted_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET 
+             uuid=$2, login=$3, password_hash=$4, role=$5, deleted_at=$7, synced_at=$8`,
+          [u.id, u.uuid, u.login, u.password_hash, u.role, u.created_at, u.deleted_at, u.synced_at]
+        );
+        imported.users++;
+      }
+    }
+
     // Import objects
     if (data.objects) {
       for (const obj of data.objects) {
         await client.query(
-          `INSERT INTO objects (id, name, code, created_at, deleted_at) 
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (id) DO UPDATE SET name=$2, code=$3, deleted_at=$5`,
-          [obj.id, obj.name, obj.code, obj.created_at, obj.deleted_at]
+          `INSERT INTO objects (id, uuid, name, code, created_at, deleted_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO UPDATE SET uuid=$2, name=$3, code=$4, deleted_at=$6, synced_at=$7`,
+          [obj.id, obj.uuid, obj.name, obj.code, obj.created_at, obj.deleted_at, obj.synced_at]
         );
         imported.objects++;
       }
     }
-    
+
     // Import premises
     if (data.premises) {
       for (const p of data.premises) {
         await client.query(
-          `INSERT INTO premises (id, object_id, name, number, type, created_at, deleted_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (id) DO UPDATE SET object_id=$2, name=$3, number=$4, type=$5, deleted_at=$7`,
-          [p.id, p.object_id, p.name, p.number, p.type, p.created_at, p.deleted_at]
+          `INSERT INTO premises (id, uuid, object_id, name, number, type, note, created_at, deleted_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (id) DO UPDATE SET uuid=$2, object_id=$3, name=$4, number=$5, type=$6, note=$7, deleted_at=$9, synced_at=$10`,
+          [p.id, p.uuid, p.object_id, p.name, p.number, p.type, p.note, p.created_at, p.deleted_at, p.synced_at]
         );
         imported.premises++;
       }
     }
-    
+
     // Import heaters
     if (data.heaters) {
       for (const h of data.heaters) {
         await client.query(
-          `INSERT INTO heaters (id, premise_id, serial, name, power_kw, power_w, elements, heating_element,
-            manufacture_date, decommission_date, inventory_number, voltage_v, protection_type, 
-            installation_location, status, created_at, updated_at, deleted_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-           ON CONFLICT (id) DO UPDATE SET premise_id=$2, serial=$3, name=$4, status=$15, deleted_at=$18`,
-          [h.id, h.premise_id, h.serial, h.name, h.power_kw, h.power_w, h.elements, h.heating_element,
-           h.manufacture_date, h.decommission_date, h.inventory_number, h.voltage_v, h.protection_type,
-           h.installation_location, h.status, h.created_at, h.updated_at, h.deleted_at]
+          `INSERT INTO heaters (id, uuid, premise_id, serial, name, power_kw, power_w, voltage_v, heating_element,
+            protection_type, manufacture_date, decommission_date, inventory_number, installation_location, 
+            status, created_at, updated_at, deleted_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+           ON CONFLICT (id) DO UPDATE SET uuid=$2, premise_id=$3, serial=$4, name=$5, status=$15, deleted_at=$18, synced_at=$19`,
+          [h.id, h.uuid, h.premise_id, h.serial, h.name, h.power_kw, h.power_w, h.voltage_v, h.heating_element,
+           h.protection_type, h.manufacture_date, h.decommission_date, h.inventory_number, h.installation_location,
+           h.status, h.created_at, h.updated_at, h.deleted_at, h.synced_at]
         );
         imported.heaters++;
       }
     }
-    
+
     // Import stickers
     if (data.stickers) {
       for (const s of data.stickers) {
         await client.query(
-          `INSERT INTO stickers (id, heater_id, number, check_date, electrician_id, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (id) DO UPDATE SET heater_id=$2, number=$3, check_date=$4`,
-          [s.id, s.heater_id, s.number, s.check_date, s.electrician_id, s.created_at]
+          `INSERT INTO stickers (id, uuid, heater_id, number, check_date, electrician_id, created_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET uuid=$2, heater_id=$3, number=$4, check_date=$5, electrician_id=$6, synced_at=$8`,
+          [s.id, s.uuid, s.heater_id, s.number, s.check_date, s.electrician_id, s.created_at, s.synced_at]
         );
         imported.stickers++;
       }
     }
-    
+
     // Import events
     if (data.events) {
       for (const e of data.events) {
         await client.query(
-          `INSERT INTO heater_events (id, heater_id, user_id, event_type, from_premise_id, to_premise_id,
-            old_status, new_status, comment, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           ON CONFLICT (id) DO UPDATE SET event_type=$4, comment=$9`,
-          [e.id, e.heater_id, e.user_id, e.event_type, e.from_premise_id, e.to_premise_id,
-           e.old_status, e.new_status, e.comment, e.created_at]
+          `INSERT INTO heater_events (id, uuid, heater_id, user_id, event_type, from_premise_id, to_premise_id,
+            old_status, new_status, comment, created_at, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           ON CONFLICT (id) DO UPDATE SET uuid=$2, event_type=$5, comment=$10, synced_at=$12`,
+          [e.id, e.uuid, e.heater_id, e.user_id, e.event_type, e.from_premise_id, e.to_premise_id,
+           e.old_status, e.new_status, e.comment, e.created_at, e.synced_at]
         );
         imported.events++;
       }
     }
-    
+
+    // Import user_objects
+    if (data.user_objects) {
+      for (const uo of data.user_objects) {
+        await client.query(
+          `INSERT INTO user_objects (id, user_id, object_id, created_at)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO UPDATE SET user_id=$2, object_id=$3`,
+          [uo.id, uo.user_id, uo.object_id, uo.created_at]
+        );
+        imported.user_objects++;
+      }
+    }
+
     await client.query('COMMIT');
     res.json({ success: true, imported });
   } catch (err) {
