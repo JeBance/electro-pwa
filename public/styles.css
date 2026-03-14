@@ -927,3 +927,305 @@ tr:last-child td {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
+/* ============================================
+   PRINT STYLES - Формы для печати на А4
+   ============================================ */
+
+@media print {
+  /* Скрываем все элементы интерфейса */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Показываем только контент для печати */
+  .print-content, .print-content * {
+    visibility: visible;
+  }
+  
+  .print-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white;
+    color: black;
+    padding: 15mm;
+  }
+  
+  /* Скрываем навигацию, кнопки, модальные окна */
+  .header, .bottom-nav, .fab, .modal-overlay, .toast, .content {
+    display: none !important;
+  }
+  
+  /* Настройки страницы А4 - альбомная ориентация */
+  @page {
+    size: A4 landscape;
+    margin: 15mm;
+  }
+  
+  /* Разрыв страницы */
+  .page-break {
+    page-break-before: always;
+  }
+}
+
+/* Стили для форм печати (видимы только при печати) */
+.print-content {
+  display: none;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 12pt;
+  line-height: 1.3;
+  color: black;
+  background: white;
+}
+
+.print-content .form-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.print-content .form-header-left,
+.print-content .form-header-right {
+  width: 45%;
+}
+
+.print-content .form-header-left {
+  text-align: left;
+}
+
+.print-content .form-header-right {
+  text-align: left;
+}
+
+.print-content .form-header-title {
+  text-align: center;
+  font-weight: bold;
+  font-size: 14pt;
+  margin: 20px 0;
+}
+
+.print-content .approval-block {
+  margin-bottom: 15px;
+}
+
+.print-content .approval-block strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.print-content .approval-block .signature-line {
+  border-bottom: 1px solid black;
+  display: inline-block;
+  width: 150px;
+  margin: 0 10px;
+}
+
+.print-content .approval-block .date-line {
+  border-bottom: 1px solid black;
+  display: inline-block;
+  width: 100px;
+  margin: 0 5px;
+}
+
+.print-content .print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 10pt;
+}
+
+.print-content .print-table th,
+.print-content .print-table td {
+  border: 1px solid black;
+  padding: 6px 4px;
+  text-align: left;
+}
+
+.print-content .print-table th {
+  background-color: #f0f0f0;
+  font-weight: bold;
+  text-align: center;
+}
+
+.print-content .print-table .col-num {
+  width: 30px;
+  text-align: center;
+}
+
+.print-content .print-table .col-name {
+  width: 25%;
+}
+
+.print-content .print-table .col-small {
+  width: 60px;
+  text-align: center;
+}
+
+.print-content .print-table .col-medium {
+  width: 90px;
+}
+
+.print-content .print-table .col-date {
+  width: 80px;
+}
+
+.print-content .print-table .col-voltage {
+  width: 70px;
+  text-align: center;
+}
+
+.print-content .print-table .col-power {
+  width: 70px;
+  text-align: center;
+}
+
+.print-content .print-table .col-heater {
+  width: 12%;
+}
+
+.print-content .print-table .col-protection {
+  width: 12%;
+}
+
+.print-content .print-table .col-location {
+  width: 15%;
+}
+
+.print-content .form-footer {
+  margin-top: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.print-content .form-footer-left {
+  font-size: 10pt;
+}
+
+.print-content .form-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.print-content .signature-line-long {
+  border-bottom: 1px solid black;
+  display: inline-block;
+  width: 200px;
+}
+
+.print-content .template-label {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 9pt;
+  color: #666;
+}
+
+/* Форма 2 - Эксплуатационный паспорт */
+.print-content .passport-header {
+  text-align: center;
+  font-weight: bold;
+  font-size: 14pt;
+  margin-bottom: 20px;
+}
+
+.print-content .passport-table th {
+  background-color: #e8e8e8;
+  font-weight: bold;
+}
+
+.print-content .passport-table .col-pp {
+  width: 30px;
+  text-align: center;
+}
+
+.print-content .passport-table .col-type {
+  width: 25%;
+}
+
+.print-content .passport-table .col-year {
+  width: 60px;
+  text-align: center;
+}
+
+.print-content .passport-table .col-date-wide {
+  width: 100px;
+}
+
+.print-content .passport-table .col-location-wide {
+  width: 20%;
+}
+
+.print-content .passport-table .col-conclusion {
+  width: 25%;
+}
+
+/* Кнопка печати в интерфейсе */
+.print-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-green));
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.print-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 217, 255, 0.4);
+}
+
+.print-btn:active {
+  transform: translateY(0);
+}
+
+/* Модальное окно выбора формы */
+.print-forms-modal .modal {
+  max-height: auto;
+}
+
+.print-form-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 12px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.print-form-option:hover {
+  border-color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+.print-form-option-icon {
+  font-size: 48px;
+}
+
+.print-form-option-content {
+  flex: 1;
+}
+
+.print-form-option-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.print-form-option-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}

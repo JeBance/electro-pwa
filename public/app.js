@@ -241,12 +241,15 @@ function renderHeader() {
     admin: 'Админка',
     profile: 'Профиль'
   };
-  
+
   return `
     <header class="header">
       <div class="header-title">${titles[currentView] || 'ELECTRO'}</div>
       <div class="header-actions">
         ${currentView === 'heaters' ? `
+          <button class="print-btn" onclick="showPrintFormsModal()" title="Печать форм">
+            🖨️ Печать
+          </button>
           <div class="toggle-container">
             <span>Вагоны</span>
             <div class="toggle ${viewMode === 'list' ? 'active' : ''}" onclick="toggleViewMode()"></div>
@@ -3028,3 +3031,517 @@ async function cleanAllFrontendData() {
 // Экспорт для консоли
 window.cleanDuplicatePremises = cleanDuplicatePremises;
 window.cleanAllFrontendData = cleanAllFrontendData;
+
+// ============================================
+// PRINT FUNCTIONS - Функции для печати форм
+// ============================================
+
+/**
+ * Показать модальное окно выбора формы для печати
+ */
+function showPrintFormsModal() {
+  const html = `
+    <div class="modal-header">
+      <div class="modal-title">️ Печать форм</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="print-forms-modal">
+      <p style="margin-bottom: 16px; color: var(--text-secondary);">Выберите форму для печати:</p>
+      
+      <div class="print-form-option" onclick="selectPrintForm(1)">
+        <div class="print-form-option-icon">📋</div>
+        <div class="print-form-option-content">
+          <div class="print-form-option-title">Форма 1: Перечень приборов</div>
+          <div class="print-form-option-desc">Шаблон 6 к приложению 1 - Список электрических отопительных приборов по объекту/помещению</div>
+        </div>
+      </div>
+      
+      <div class="print-form-option" onclick="selectPrintForm(2)">
+        <div class="print-form-option-icon">📄</div>
+        <div class="print-form-option-content">
+          <div class="print-form-option-title">Форма 2: Эксплуатационный паспорт</div>
+          <div class="print-form-option-desc">Шаблон 7 к приложению 1 - Паспорт на отопительный прибор (история обслуживания)</div>
+        </div>
+      </div>
+    </div>
+  `;
+  showModal(html);
+}
+
+/**
+ * Выбор формы для печати
+ * @param {number} formType - 1 для перечня, 2 для паспорта
+ */
+async function selectPrintForm(formType) {
+  closeModal();
+  
+  // Загружаем актуальные данные
+  await loadLocalData();
+  
+  if (formType === 1) {
+    showPrintForm1Modal();
+  } else if (formType === 2) {
+    showPrintForm2Modal();
+  }
+}
+
+/**
+ * Показать модальное окно выбора параметров для Формы 1
+ */
+function showPrintForm1Modal() {
+  // Получаем уникальные объекты
+  const objects = [...new Map(window.objects.map(o => [o.uuid || o.id, o])).values()];
+  const objectsHtml = objects.map(o => `<option value="${o.uuid || o.id}">${o.name}</option>`).join('');
+  
+  const html = `
+    <div class="modal-header">
+      <div class="modal-title">📋 Параметры печати (Форма 1)</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="printForm1(event)">
+      <div class="input-group">
+        <label>Объект</label>
+        <select name="object_id" required onchange="updatePremisesForPrint(this.value)">
+          <option value="">Выберите объект</option>
+          ${objectsHtml}
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Помещение (необязательно)</label>
+        <select name="premise_id" id="premise-print-select">
+          <option value="">Все помещения</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Статус обогревателей</label>
+        <select name="status">
+          <option value="">Все статусы</option>
+          <option value="active">Активные</option>
+          <option value="repair">В ремонте</option>
+          <option value="warehouse">На складе</option>
+          <option value="moved">Перемещённые</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button type="submit" class="btn btn-primary" style="flex: 1">🖨️ Печать</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()" style="flex: 1">Отмена</button>
+      </div>
+    </form>
+  `;
+  showModal(html);
+}
+
+/**
+ * Обновить список помещений для печати
+ */
+async function updatePremisesForPrint(objectId) {
+  const select = document.getElementById('premise-print-select');
+  if (!select || !objectId) {
+    if (select) select.innerHTML = '<option value="">Все помещения</option>';
+    return;
+  }
+  
+  const premises = window.premises.filter(p => 
+    String(p.object_id) === String(objectId) || String(p.object_uuid) === String(objectId)
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true }));
+  
+  select.innerHTML = '<option value="">Все помещения</option>' +
+    premises.map(p => `<option value="${p.uuid || p.id}">${p.name}</option>`).join('');
+}
+
+/**
+ * Печать Формы 1 - Перечень электрических отопительных приборов
+ */
+async function printForm1(e) {
+  e.preventDefault();
+  const form = e.target;
+  
+  const objectId = form.object_id?.value;
+  const premiseId = form.premise_id?.value;
+  const statusFilter = form.status?.value;
+  
+  if (!objectId) {
+    showToast('Выберите объект');
+    return;
+  }
+  
+  // Фильтруем обогреватели
+  let filteredHeaters = window.heaters.filter(h => {
+    // Проверка по объекту
+    const heaterObject = String(h.object_uuid) === String(objectId) || String(h.object_id) === String(objectId);
+    if (!heaterObject) return false;
+    
+    // Проверка по помещению
+    if (premiseId) {
+      const heaterPremise = String(h.premise_uuid) === String(premiseId) || String(h.premise_id) === String(premiseId);
+      if (!heaterPremise) return false;
+    }
+    
+    // Проверка по статусу
+    if (statusFilter && h.status !== statusFilter) return false;
+    
+    // Исключаем удалённые
+    if (h.deleted_at) return false;
+    
+    return true;
+  });
+  
+  // Сортируем по помещениям, затем по названию
+  filteredHeaters.sort((a, b) => {
+    const premiseCompare = (a.premise_name || '').localeCompare(b.premise_name || '', 'ru');
+    if (premiseCompare !== 0) return premiseCompare;
+    return (a.name || '').localeCompare(b.name || '', 'ru');
+  });
+  
+  // Получаем названия объекта и помещения
+  const selectedObject = window.objects.find(o => String(o.uuid) === String(objectId) || String(o.id) === String(objectId));
+  const selectedPremise = premiseId ? window.premises.find(p => String(p.uuid) === String(premiseId) || String(p.id) === String(premiseId)) : null;
+  
+  // Генерируем HTML для печати
+  const printHtml = generateForm1Html(selectedObject, selectedPremise, filteredHeaters);
+  
+  // Печатаем
+  await printToA4(printHtml);
+  
+  closeModal();
+  showToast(`Напечатано ${filteredHeaters.length} обогревателей`);
+}
+
+/**
+ * Генерация HTML для Формы 1
+ */
+function generateForm1Html(object, premise, heaters) {
+  const currentDate = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const premiseName = premise ? premise.name : 'все помещения';
+  
+  // Генерируем строки таблицы (максимум 10 на странице)
+  const rowsHtml = heaters.slice(0, 10).map((h, index) => {
+    const powerW = h.power_w || (h.power_kw ? Math.round(h.power_kw * 1000) : '');
+    const decommissionDate = h.decommission_date ? new Date(h.decommission_date).toLocaleDateString('ru-RU') : '';
+    
+    return `
+      <tr>
+        <td class="col-num">${index + 1}</td>
+        <td class="col-name">${h.name || ''}</td>
+        <td class="col-small">${h.serial || ''}</td>
+        <td class="col-small">${h.sticker_number || ''}</td>
+        <td class="col-date">${decommissionDate}</td>
+        <td class="col-voltage">${h.voltage_v || ''}</td>
+        <td class="col-power">${powerW}</td>
+        <td class="col-heater">${h.heating_element || ''}</td>
+        <td class="col-protection">${h.protection_type || ''}</td>
+        <td class="col-location">${h.premise_name || ''}</td>
+      </tr>
+    `;
+  }).join('');
+  
+  // Пустые строки для заполнения до 10
+  const emptyRows = Math.max(0, 10 - heaters.length);
+  const emptyRowsHtml = Array(emptyRows).fill('<tr><td class="col-num"></td><td class="col-name"></td><td class="col-small"></td><td class="col-small"></td><td class="col-date"></td><td class="col-voltage"></td><td class="col-power"></td><td class="col-heater"></td><td class="col-protection"></td><td class="col-location"></td></tr>').join('');
+  
+  return `
+    <div class="print-content" style="display: block;">
+      <div class="form-header">
+        <div class="form-header-left">
+          <div class="approval-block">
+            <strong>Согласовано</strong><br>
+            Начальник пожарной части<br>
+            <br>
+            "__" __________ 202_ г.
+          </div>
+        </div>
+        <div class="form-header-right">
+          <div class="approval-block">
+            Шаблон 6 к приложению 1<br>
+            <strong>Утверждаю</strong><br>
+            Начальник промысла<br>
+            <br>
+            "__" __________ 202_ г.
+          </div>
+        </div>
+      </div>
+
+      <div class="form-header-title"><em>Перечень электрических отопительных приборов</em></div>
+
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th class="col-num">№п/п</th>
+            <th class="col-name">Марка, наименование (тип) отопительного прибора</th>
+            <th class="col-small">Зав.№</th>
+            <th class="col-small">Инв.№</th>
+            <th class="col-date">Дата вывода из эксплуатации</th>
+            <th class="col-voltage">Напряжение, В</th>
+            <th class="col-power">Мощность, Вт</th>
+            <th class="col-heater">Нагревательный элемент</th>
+            <th class="col-protection">Исполнение (тип защиты)</th>
+            <th class="col-location">Место установки</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+          ${emptyRowsHtml}
+        </tbody>
+      </table>
+
+      <div class="form-footer">
+        <div class="form-footer-left">
+          Составил: Главный специалист УЖО АО "СТНГ"
+        </div>
+        <div class="form-footer-right">
+          <span class="signature-line-long"></span>
+          <span>А.С.Сербенюк</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Показать модальное окно выбора обогревателя для Формы 2
+ */
+function showPrintForm2Modal() {
+  // Фильтруем обогреватели (без удалённых)
+  const availableHeaters = window.heaters.filter(h => !h.deleted_at).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+  
+  const heatersHtml = availableHeaters.map(h => {
+    const sticker = h.sticker_number ? `${h.sticker_number} - ` : '';
+    return `<option value="${h.id}">${sticker}${h.name}</option>`;
+  }).join('');
+  
+  const html = `
+    <div class="modal-header">
+      <div class="modal-title">📄 Параметры печати (Форма 2)</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <form onsubmit="printForm2(event)">
+      <div class="input-group">
+        <label>Выберите обогреватель</label>
+        <select name="heater_id" required>
+          <option value="">Выберите обогреватель</option>
+          ${heatersHtml}
+        </select>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button type="submit" class="btn btn-primary" style="flex: 1">🖨️ Печать</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()" style="flex: 1">Отмена</button>
+      </div>
+    </form>
+  `;
+  showModal(html);
+}
+
+/**
+ * Печать Формы 2 - Эксплуатационный паспорт
+ */
+async function printForm2(e) {
+  e.preventDefault();
+  const form = e.target;
+  
+  const heaterId = form.heater_id?.value;
+  
+  if (!heaterId) {
+    showToast('Выберите обогреватель');
+    return;
+  }
+  
+  // Находим обогреватель
+  const heater = window.heaters.find(h => String(h.id) === String(heaterId));
+  
+  if (!heater) {
+    showToast('Обогреватель не найден');
+    return;
+  }
+  
+  // Загружаем историю событий для обогревателя
+  const events = await Store.db.events.toArray();
+  const heaterEvents = events.filter(ev => 
+    String(ev.heater_id) === String(heaterId) || ev.heater_uuid === heater.uuid
+  ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  
+  // Генерируем HTML для печати
+  const printHtml = generateForm2Html(heater, heaterEvents);
+  
+  // Печатаем
+  await printToA4(printHtml);
+  
+  closeModal();
+  showToast(`Напечатан паспорт для "${heater.name}"`);
+}
+
+/**
+ * Генерация HTML для Формы 2
+ */
+function generateForm2Html(heater, events) {
+  const manufactureYear = heater.manufacture_date ? new Date(heater.manufacture_date).getFullYear() : '';
+  const manufactureDate = heater.manufacture_date ? new Date(heater.manufacture_date).toLocaleDateString('ru-RU') : '';
+  const decommissionDate = heater.decommission_date ? new Date(heater.decommission_date).toLocaleDateString('ru-RU') : '';
+  const premiseName = heater.premise_name || '';
+  
+  // Генерируем строки для истории обслуживания (максимум 7 на странице)
+  const rowsHtml = events.slice(0, 7).map((ev, index) => {
+    const eventDate = ev.created_at ? new Date(ev.created_at).toLocaleDateString('ru-RU') : '';
+    let conclusion = '';
+    let defects = '';
+    
+    if (ev.event_type === 'status_change') {
+      if (ev.new_status === 'repair') {
+        conclusion = 'Отправлен в ремонт';
+        defects = ev.comment || '';
+      } else if (ev.new_status === 'active') {
+        conclusion = 'Пригоден к эксплуатации';
+        defects = '';
+      }
+    }
+    
+    return `
+      <tr>
+        <td class="col-pp">${index + 1}</td>
+        <td class="col-type">${heater.name} ${heater.serial ? `(зав.№ ${heater.serial})` : ''}</td>
+        <td class="col-year">${manufactureYear}</td>
+        <td class="col-date-wide">${manufactureDate}</td>
+        <td class="col-location-wide">${premiseName}</td>
+        <td class="col-date-wide">${decommissionDate}</td>
+        <td class="col-date-wide">${eventDate}</td>
+        <td class="col-conclusion">${conclusion}<br><small style="color:#666">${defects}</small></td>
+      </tr>
+    `;
+  }).join('');
+  
+  // Пустые строки для заполнения до 7
+  const emptyRows = Math.max(0, 7 - events.length);
+  const emptyRowsHtml = Array(emptyRows).fill(`<td class="col-pp"></td><td class="col-type"></td><td class="col-year"></td><td class="col-date-wide"></td><td class="col-location-wide"></td><td class="col-date-wide"></td><td class="col-date-wide"></td><td class="col-conclusion"></td>`).map(row => `<tr>${row}</tr>`).join('');
+  
+  // Первая строка с основной информацией
+  const firstRow = `
+    <tr>
+      <td class="col-pp">1</td>
+      <td class="col-type">${heater.name} ${heater.serial ? `(зав.№ ${heater.serial})` : ''}</td>
+      <td class="col-year">${manufactureYear}</td>
+      <td class="col-date-wide">${manufactureDate}</td>
+      <td class="col-location-wide">${premiseName}</td>
+      <td class="col-date-wide">${decommissionDate}</td>
+      <td class="col-date-wide"></td>
+      <td class="col-conclusion">Пригоден к эксплуатации</td>
+    </tr>
+  `;
+  
+  return `
+    <div class="print-content" style="display: block;">
+      <div style="text-align: center; margin-bottom: 15px; font-size: 10pt; font-weight: bold;">
+        Эксплуатационный паспорт на отопительный прибор
+      </div>
+      <div style="text-align: right; margin-bottom: 10px; font-size: 9pt;">
+        Шаблон 7 к приложению 1
+      </div>
+
+      <table class="print-table passport-table">
+        <thead>
+          <tr>
+            <th class="col-pp">№ пп</th>
+            <th class="col-type">Тип прибора/заводской номер</th>
+            <th class="col-year">Год<br>выпуска</th>
+            <th class="col-date-wide">Дата ввода в<br>эксплуатацию</th>
+            <th class="col-location-wide">Место размещения<br>оборудования</th>
+            <th class="col-date-wide">Дата вывода из<br>эксплуатации</th>
+            <th class="col-date-wide">Дата проведения<br>технического<br>обслуживания</th>
+            <th class="col-conclusion">Заключение (пригодность к<br>дальнейшей эксплуатации) /<br>отметки о состоянии прибора,<br>проведённых работах по ТО</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${firstRow}
+          ${rowsHtml}
+          ${emptyRowsHtml}
+        </tbody>
+      </table>
+
+      <div style="margin-top: 20px; font-size: 10pt;">
+        Ответственный за пожарную безопасность: должность, Ф.И.О
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Печать HTML контента на А4
+ */
+async function printToA4(htmlContent) {
+  // Создаём временный контейнер для печати
+  const printContainer = document.createElement('div');
+  printContainer.className = 'print-container';
+  printContainer.innerHTML = htmlContent;
+  document.body.appendChild(printContainer);
+  
+  // Создаём iframe для печати
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '210mm';
+  iframe.style.height = '297mm';
+  iframe.style.border = 'none';
+  iframe.style.zIndex = '-1000';
+  document.body.appendChild(iframe);
+  
+  // Получаем текущие стили
+  const styles = document.querySelector('link[href*="styles.css"]');
+  const stylesHref = styles ? styles.href : '/styles.css';
+  
+  // Записываем контент в iframe
+  const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+  iframeDoc.open();
+  iframeDoc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Печать формы</title>
+      <link rel="stylesheet" href="${stylesHref}">
+      <style>
+        @media print {
+          @page { size: A4 landscape; margin: 15mm; }
+        }
+        body { margin: 0; padding: 0; }
+      </style>
+    </head>
+    <body>
+      ${htmlContent}
+    </body>
+    </html>
+  `);
+  iframeDoc.close();
+  
+  // Ждём загрузки стилей и печатаем
+  iframe.onload = () => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    
+    // Очищаем после печати
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+      document.body.removeChild(printContainer);
+    }, 1000);
+  };
+  
+  // Fallback: если onload не сработал
+  setTimeout(() => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch (err) {
+      console.error('Print error:', err);
+    }
+    
+    // Очищаем
+    setTimeout(() => {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+      if (document.body.contains(printContainer)) document.body.removeChild(printContainer);
+    }, 1000);
+  }, 500);
+}
+
+// Экспорт функций печати
+window.showPrintFormsModal = showPrintFormsModal;
+window.selectPrintForm = selectPrintForm;
+window.printForm1 = printForm1;
+window.printForm2 = printForm2;
+window.printToA4 = printToA4;
