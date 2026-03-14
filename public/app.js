@@ -1042,11 +1042,11 @@ function updatePremisesSelect(objectId, lastPremiseId = '') {
     return;
   }
 
-  // Фильтруем помещения по object_id или object_uuid и сортируем по алфавиту
+  // Фильтруем помещения по object_id или object_uuid и сортируем по алфавиту с учётом чисел
   const filtered = window.premises.filter(p =>
     String(p.object_id) === String(objectId) ||
     String(p.object_uuid) === String(objectId)
-  ).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true, sensitivity: 'base' }));
   
   let html = '<option value="">Без помещения (на склад)</option>';
 
@@ -1929,11 +1929,11 @@ async function loadAdminData() {
       `).join('');
     }
 
-    // Render premises - сортировка по алфавиту
+    // Render premises - сортировка по алфавиту с учётом чисел (natural sort)
     const premisesList = $('#premises-list');
     if (premisesList) {
       const sortedPremises = [...premisesData].sort((a, b) => 
-        (a.name || '').localeCompare(b.name || '', 'ru')
+        (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true, sensitivity: 'base' })
       );
       premisesList.innerHTML = sortedPremises.map(p => `
         <div class="settings-item">
