@@ -3298,17 +3298,13 @@ function generateForm1Html(object, premise, heaters) {
 }
 
 /**
- * Показать модальное окно выбора обогревателя для Формы 2
+ * Показать модальное окно выбора параметров для Формы 2
  */
 function showPrintForm2Modal() {
-  // Фильтруем обогреватели (без удалённых)
-  const availableHeaters = window.heaters.filter(h => !h.deleted_at).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
-  
-  const heatersHtml = availableHeaters.map(h => {
-    const sticker = h.sticker_number ? `${h.sticker_number} - ` : '';
-    return `<option value="${h.id}">${sticker}${h.name}</option>`;
-  }).join('');
-  
+  // Получаем уникальные объекты
+  const objects = [...new Map(window.objects.map(o => [o.uuid || o.id, o])).values()];
+  const objectsHtml = objects.map(o => `<option value="${o.uuid || o.id}">${o.name}</option>`).join('');
+
   const html = `
     <div class="modal-header">
       <div class="modal-title">📄 Параметры печати (Форма 2)</div>
@@ -3316,10 +3312,16 @@ function showPrintForm2Modal() {
     </div>
     <form onsubmit="printForm2(event)">
       <div class="input-group">
-        <label>Выберите обогреватель</label>
-        <select name="heater_id" required>
-          <option value="">Выберите обогреватель</option>
-          ${heatersHtml}
+        <label>Объект</label>
+        <select name="object_id" required onchange="updatePremisesForPrint2(this.value)">
+          <option value="">Выберите объект</option>
+          ${objectsHtml}
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Помещение (необязательно)</label>
+        <select name="premise_id" id="premise-print-select-2">
+          <option value="">Все помещения</option>
         </select>
       </div>
       <div style="display: flex; gap: 10px; margin-top: 20px;">
@@ -3332,100 +3334,180 @@ function showPrintForm2Modal() {
 }
 
 /**
- * Печать Формы 2 - Эксплуатационный паспорт
+ * Обновить список помещений для Формы 2
+ */
+async function updatePremisesForPrint2(objectId) {
+  const select = document.getElementById('premise-print-select-2');
+  if (!select || !objectId) {
+    if (select) select.innerHTML = '<option value="">Все помещения</option>';
+    return;
+  }
+  
+  const premises = window.premises.filter(p => 
+    String(p.object_id) === String(objectId) || String(p.object_uuid) === String(objectId)
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true }));
+  
+  select.innerHTML = '<option value="">Все помещения</option>' +
+    premises.map(p => `<option value="${p.uuid || p.id}">${p.name}</option>`).join('');
+}
+
+/**
+ * Печать Формы 2 - Эксплуатационный паспорт по объекту/помещениям
  */
 async function printForm2(e) {
   e.preventDefault();
   const form = e.target;
-  
-  const heaterId = form.heater_id?.value;
-  
-  if (!heaterId) {
-    showToast('Выберите обогреватель');
+
+  const objectId = form.object_id?.value;
+  const premiseId = form.premise_id?.value;
+
+  if (!objectId) {
+    showToast('Выберите объект');
     return;
   }
-  
-  // Находим обогреватель
-  const heater = window.heaters.find(h => String(h.id) === String(heaterId));
-  
-  if (!heater) {
-    showToast('Обогреватель не найден');
-    return;
-  }
-  
-  // Загружаем историю событий для обогревателя
-  const events = await Store.db.events.toArray();
-  const heaterEvents = events.filter(ev => 
-    String(ev.heater_id) === String(heaterId) || ev.heater_uuid === heater.uuid
-  ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  
+
+  // Фильтруем обогреватели по объекту и помещению
+  let filteredHeaters = window.heaters.filter(h => {
+    // Проверка по объекту
+    const heaterObject = String(h.object_uuid) === String(objectId) || String(h.object_id) === String(objectId);
+    if (!heaterObject) return false;
+    
+    // Проверка по помещению
+    if (premiseId) {
+      const heaterPremise = String(h.premise_uuid) === String(premiseId) || String(h.premise_id) === String(premiseId);
+      if (!heaterPremise) return false;
+    }
+    
+    // Исключаем удалённые
+    if (h.deleted_at) return false;
+    
+    return true;
+  });
+
+  // Сортируем по помещениям, затем по названию
+  filteredHeaters.sort((a, b) => {
+    const premiseCompare = (a.premise_name || '').localeCompare(b.premise_name || '', 'ru');
+    if (premiseCompare !== 0) return premiseCompare;
+    return (a.name || '').localeCompare(b.name || '', 'ru');
+  });
+
+  // Получаем данные объекта и помещения
+  const selectedObject = window.objects.find(o => String(o.uuid) === String(objectId) || String(o.id) === String(objectId));
+  const selectedPremise = premiseId ? window.premises.find(p => String(p.uuid) === String(premiseId) || String(p.id) === String(premiseId)) : null;
+
+  // Загружаем все события для получения дат создания и ТО
+  const allEvents = await Store.db.events.toArray();
+
   // Генерируем HTML для печати
-  const printHtml = generateForm2Html(heater, heaterEvents);
-  
+  const printHtml = generateForm2Html(filteredHeaters, allEvents, selectedObject, selectedPremise);
+
   // Печатаем
   await printToA4(printHtml);
-  
+
   closeModal();
-  showToast(`Напечатан паспорт для "${heater.name}"`);
+  showToast(`Напечатано ${filteredHeaters.length} обогревателей`);
 }
 
 /**
  * Генерация HTML для Формы 2
+ * @param {Array} heaters - массив обогревателей
+ * @param {Array} allEvents - все события для поиска дат
+ * @param {Object} object - объект
+ * @param {Object} premise - помещение (опционально)
  */
-function generateForm2Html(heater, events) {
-  const manufactureYear = heater.manufacture_date ? new Date(heater.manufacture_date).getFullYear() : '';
-  const manufactureDate = heater.manufacture_date ? new Date(heater.manufacture_date).toLocaleDateString('ru-RU') : '';
-  const decommissionDate = heater.decommission_date ? new Date(heater.decommission_date).toLocaleDateString('ru-RU') : '';
-  const premiseName = heater.premise_name || '';
+function generateForm2Html(heaters, allEvents, object, premise) {
+  const premiseName = premise ? premise.name : 'все помещения';
+  const objectName = object?.name || '';
   
-  // Генерируем строки для истории обслуживания (максимум 7 на странице)
-  const rowsHtml = events.slice(0, 7).map((ev, index) => {
-    const eventDate = ev.created_at ? new Date(ev.created_at).toLocaleDateString('ru-RU') : '';
-    let conclusion = '';
-    let defects = '';
-    
-    if (ev.event_type === 'status_change') {
-      if (ev.new_status === 'repair') {
-        conclusion = 'Отправлен в ремонт';
-        defects = ev.comment || '';
-      } else if (ev.new_status === 'active') {
-        conclusion = 'Пригоден к эксплуатации';
-        defects = '';
-      }
-    }
-    
-    return `
-      <tr>
-        <td class="col-pp">${index + 1}</td>
-        <td class="col-type">${heater.name} ${heater.serial ? `(зав.№ ${heater.serial})` : ''}</td>
-        <td class="col-year">${manufactureYear}</td>
-        <td class="col-date-wide">${manufactureDate}</td>
-        <td class="col-location-wide">${premiseName}</td>
-        <td class="col-date-wide">${decommissionDate}</td>
-        <td class="col-date-wide">${eventDate}</td>
-        <td class="col-conclusion">${conclusion}<br><small style="color:#666">${defects}</small></td>
+  // Группируем обогреватели по помещениям
+  const heatersByPremise = new Map();
+  heaters.forEach(h => {
+    const key = h.premise_name || 'Без помещения';
+    if (!heatersByPremise.has(key)) heatersByPremise.set(key, []);
+    heatersByPremise.get(key).push(h);
+  });
+
+  // Генерируем строки для каждого обогревателя
+  let allRowsHtml = '';
+  let rowCount = 0;
+  const maxRows = 7; // Максимум строк на странице
+
+  for (const [premiseKey, premiseHeaters] of heatersByPremise) {
+    // Заголовок помещения
+    allRowsHtml += `
+      <tr style="background: #e0e0e0; font-weight: bold;">
+        <td class="col-pp" colspan="8">Помещение: ${premiseKey}</td>
       </tr>
     `;
-  }).join('');
-  
-  // Пустые строки для заполнения до 7
-  const emptyRows = Math.max(0, 7 - events.length);
-  const emptyRowsHtml = Array(emptyRows).fill(`<td class="col-pp"></td><td class="col-type"></td><td class="col-year"></td><td class="col-date-wide"></td><td class="col-location-wide"></td><td class="col-date-wide"></td><td class="col-date-wide"></td><td class="col-conclusion"></td>`).map(row => `<tr>${row}</tr>`).join('');
-  
-  // Первая строка с основной информацией
-  const firstRow = `
+    rowCount++;
+
+    // Обогреватели этого помещения
+    for (const heater of premiseHeaters) {
+      if (rowCount >= maxRows) break;
+      
+      // Находим дату создания обогревателя (первое событие)
+      const heaterEvents = allEvents.filter(ev => 
+        String(ev.heater_id) === String(heater.id) || ev.heater_uuid === heater.uuid
+      ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      
+      const creationDate = heaterEvents.length > 0 
+        ? new Date(heaterEvents[0].created_at).toLocaleDateString('ru-RU')
+        : (heater.created_at ? new Date(heater.created_at).toLocaleDateString('ru-RU') : '');
+      
+      const manufactureYear = heater.manufacture_date ? new Date(heater.manufacture_date).getFullYear() : '';
+      const manufactureDate = heater.manufacture_date ? new Date(heater.manufacture_date).toLocaleDateString('ru-RU') : '';
+      const decommissionDate = heater.decommission_date ? new Date(heater.decommission_date).toLocaleDateString('ru-RU') : '';
+      
+      // Находим даты ТО (события status_change с переходом в repair и обратно)
+      const toDates = [];
+      heaterEvents.forEach(ev => {
+        if (ev.event_type === 'status_change' && ev.new_status === 'active') {
+          toDates.push(new Date(ev.created_at).toLocaleDateString('ru-RU'));
+        }
+      });
+      const toDateStr = toDates.length > 0 ? toDates.join(', ') : '';
+      
+      // Заключение
+      let conclusion = 'Пригоден к эксплуатации';
+      if (heater.status === 'repair') {
+        conclusion = 'В ремонте';
+      } else if (heater.status === 'warehouse') {
+        conclusion = 'На складе';
+      }
+
+      allRowsHtml += `
+        <tr>
+          <td class="col-pp">${rowCount}</td>
+          <td class="col-type">${heater.name}${heater.serial ? ` (зав.№ ${heater.serial})` : ''}${heater.sticker_number ? ` [${heater.sticker_number}]` : ''}</td>
+          <td class="col-year">${manufactureYear}</td>
+          <td class="col-date-wide">${creationDate}</td>
+          <td class="col-location-wide">${heater.premise_name || '—'}</td>
+          <td class="col-date-wide">${decommissionDate}</td>
+          <td class="col-date-wide">${toDateStr}</td>
+          <td class="col-conclusion">${conclusion}</td>
+        </tr>
+      `;
+      rowCount++;
+    }
+    
+    if (rowCount >= maxRows) break;
+  }
+
+  // Пустые строки для заполнения
+  const emptyRows = Math.max(0, maxRows - rowCount);
+  const emptyRowsHtml = Array(emptyRows).fill(`
     <tr>
-      <td class="col-pp">1</td>
-      <td class="col-type">${heater.name} ${heater.serial ? `(зав.№ ${heater.serial})` : ''}</td>
-      <td class="col-year">${manufactureYear}</td>
-      <td class="col-date-wide">${manufactureDate}</td>
-      <td class="col-location-wide">${premiseName}</td>
-      <td class="col-date-wide">${decommissionDate}</td>
+      <td class="col-pp"></td>
+      <td class="col-type"></td>
+      <td class="col-year"></td>
       <td class="col-date-wide"></td>
-      <td class="col-conclusion">Пригоден к эксплуатации</td>
+      <td class="col-location-wide"></td>
+      <td class="col-date-wide"></td>
+      <td class="col-date-wide"></td>
+      <td class="col-conclusion"></td>
     </tr>
-  `;
-  
+  `).join('');
+
   return `
     <div class="print-content" style="display: block;">
       <div style="text-align: center; margin-bottom: 15px; font-size: 10pt; font-weight: bold;">
@@ -3433,6 +3515,9 @@ function generateForm2Html(heater, events) {
       </div>
       <div style="text-align: right; margin-bottom: 10px; font-size: 9pt;">
         Шаблон 7 к приложению 1
+      </div>
+      <div style="text-align: center; margin-bottom: 15px; font-size: 10pt;">
+        Объект: <strong>${objectName}</strong> | Помещение: <strong>${premiseName}</strong>
       </div>
 
       <table class="print-table passport-table">
@@ -3449,8 +3534,7 @@ function generateForm2Html(heater, events) {
           </tr>
         </thead>
         <tbody>
-          ${firstRow}
-          ${rowsHtml}
+          ${allRowsHtml}
           ${emptyRowsHtml}
         </tbody>
       </table>
