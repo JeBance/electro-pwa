@@ -23,8 +23,9 @@ async function initApp() {
   // Записываем лог инициализации
   if (window.AppLogs) AppLogs.info('Приложение запущено');
 
-  // Проверяем авторизацию
-  if (checkAuth()) {
+  // Проверяем авторизацию (теперь асинхронно)
+  const isAuth = await checkAuth();
+  if (isAuth) {
     if (window.AppLogs) AppLogs.success(`Пользователь ${currentUser?.login || 'anonymous'} авторизован`);
 
     // Загружаем данные с сервера в IndexedDB
@@ -154,32 +155,90 @@ async function api(endpoint, options = {}) {
 // ===== AUTH =====
 async function login(loginVal, password) {
   try {
-    const res = await fetch(`${API_BASE}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login: loginVal, password })
-    });
+    // Сначала пробуем войти через сервер
+    let data;
+    let isOfflineLogin = false;
 
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Ошибка входа');
+    if (navigator.onLine) {
+      try {
+        const res = await fetch(`${API_BASE}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login: loginVal, password })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || 'Ошибка входа');
+        }
+
+        data = await res.json();
+      } catch (fetchErr) {
+        // Если ошибка сети — пробуем оффлайн-вход
+        if (navigator.onLine === false || fetchErr.message.includes('fetch') || fetchErr.message.includes('NetworkError')) {
+          console.log('[Login] Network error, trying offline login');
+          isOfflineLogin = true;
+        } else {
+          throw fetchErr;
+        }
+      }
+    } else {
+      // Офлайн — пробуем войти по кэшированным учётным данным
+      isOfflineLogin = true;
     }
 
-    const data = await res.json();
+    // Оффлайн-вход по кэшированным учётным данным
+    if (isOfflineLogin) {
+      const cachedCreds = await Auth.getCachedCredentials();
+      if (!cachedCreds) {
+        throw new Error('Офлайн-вход невозможен: нет кэшированных учётных данных');
+      }
+
+      // Проверяем совпадение учётных данных
+      if (cachedCreds.login !== loginVal || cachedCreds.password !== password) {
+        throw new Error('Неверный логин или пароль (офлайн-режим)');
+      }
+
+      // Получаем кэшированного пользователя
+      const cachedUser = await Auth.getCachedUser();
+      if (!cachedUser) {
+        throw new Error('Офлайн-вход невозможен: нет кэшированных данных пользователя');
+      }
+
+      data = {
+        token: localStorage.getItem('token') || 'offline-token',
+        user: cachedUser
+      };
+
+      console.log('[Login] Offline login successful for:', cachedUser.login);
+      if (window.AppLogs) AppLogs.success(`Офлайн-вход: ${cachedUser.login}`);
+    }
+
+    // Сохраняем токен и пользователя
     localStorage.setItem('token', data.token);
     currentUser = data.user;
+
+    // Кэшируем учётные данные и пользователя для будущего оффлайн-входа
+    await Auth.cacheCredentials(loginVal, password);
+    await Auth.cacheUser(data.user);
 
     if (window.AppLogs) AppLogs.success(`Пользователь ${data.user.login} вошёл в систему`);
 
     // Загружаем данные с сервера в IndexedDB
     await loadLocalData();
-    
+
     // Синхронизируем с сервером (отправляем очередь и получаем обновления)
-    if (navigator.onLine) {
+    if (navigator.onLine && !isOfflineLogin) {
       await SyncManager.sync();
+    } else if (isOfflineLogin) {
+      if (window.AppLogs) AppLogs.info('Вход выполнен в оффлайн-режиме');
+      showToast('Вход выполнен (офлайн)');
     }
 
-    showToast('Вход выполнен');
+    if (!isOfflineLogin) {
+      showToast('Вход выполнен');
+    }
+
     setView('heaters');
   } catch (err) {
     console.error('[Login] error:', err);
@@ -192,12 +251,22 @@ async function login(loginVal, password) {
 function logout() {
   localStorage.removeItem('token');
   currentUser = null;
+  // Очищаем кэшированные учётные данные при выходе
+  Auth.clearCachedCredentials();
+  Auth.clearCachedUser();
   setView('login');
 }
 
-function checkAuth() {
+async function checkAuth() {
   const token = localStorage.getItem('token');
   if (!token) {
+    // Пробуем восстановить из кэша
+    const cachedUser = await Auth.getCachedUser();
+    if (cachedUser) {
+      currentUser = cachedUser;
+      console.log('[checkAuth] Restored from cached user');
+      return true;
+    }
     currentUser = null;
     return false;
   }
@@ -205,13 +274,29 @@ function checkAuth() {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     if (payload.exp * 1000 < Date.now()) {
+      // Токен истёк — пробуем использовать кэшированного пользователя
+      const cachedUser = await Auth.getCachedUser();
+      if (cachedUser) {
+        currentUser = cachedUser;
+        console.log('[checkAuth] Token expired, using cached user');
+        return true;
+      }
       logout();
       return false;
     }
     currentUser = payload;
+    // Кэшируем пользователя для оффлайн-доступа
+    await Auth.cacheUser(payload);
     return true;
   } catch (err) {
     console.error('[checkAuth] Invalid token:', err);
+    // При ошибке токена пробуем кэшированного пользователя
+    const cachedUser = await Auth.getCachedUser();
+    if (cachedUser) {
+      currentUser = cachedUser;
+      console.log('[checkAuth] Invalid token, using cached user');
+      return true;
+    }
     logout();
     return false;
   }
@@ -1002,8 +1087,10 @@ function toggleEditMoveField(status, currentPremiseId) {
     if (status === 'moved') {
       group.style.display = 'block';
       select.required = true;
-      // Не показываем текущее помещение в списке
-      const filtered = window.premises.filter(p => p.id !== currentPremiseId);
+      // Не показываем текущее помещение в списке и сортируем по алфавиту с учётом чисел
+      const filtered = window.premises
+        .filter(p => p.id !== currentPremiseId)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true, sensitivity: 'base' }));
       select.innerHTML = '<option value="">Выберите помещение</option>' +
         filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     } else {
@@ -1502,6 +1589,7 @@ async function showEditHeaterModal(id) {
   // Get all premises for this object (or all premises if object not found)
   const availablePremises = object_id
     ? window.premises.filter(p => p.object_id === object_id || p.object_uuid === object_id)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true, sensitivity: 'base' }))
     : window.premises;
 
   const premisesHtml = availablePremises.map(p =>
