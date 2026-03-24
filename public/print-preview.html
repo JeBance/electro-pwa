@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Печать документа</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 15mm;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 12pt;
+      line-height: 1.3;
+      color: black;
+      background: white;
+      padding: 0;
+    }
+    
+    .print-content {
+      width: 100%;
+    }
+    
+    /* Форма 1: Перечень приборов */
+    .form-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    
+    .form-header-left,
+    .form-header-right {
+      width: 45%;
+    }
+    
+    .form-header-left {
+      text-align: left;
+    }
+    
+    .form-header-right {
+      text-align: left;
+    }
+    
+    .form-header-title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 14pt;
+      margin: 20px 0;
+    }
+    
+    .approval-block {
+      margin-bottom: 15px;
+    }
+    
+    .approval-block strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+    
+    .signature-line {
+      display: inline-block;
+      min-width: 200px;
+      border-bottom: 1px solid black;
+      padding: 0 10px;
+    }
+    
+    .date-line {
+      display: inline-block;
+      min-width: 150px;
+      border-bottom: 1px solid black;
+      padding: 0 10px;
+    }
+    
+    /* Таблицы */
+    .print-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    
+    .print-table th,
+    .print-table td {
+      border: 1px solid black;
+      padding: 8px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    
+    .print-table th {
+      background-color: #f0f0f0;
+      font-weight: bold;
+      text-align: center;
+      font-size: 9pt;
+    }
+    
+    .print-table .col-num {
+      width: 30px;
+      text-align: center;
+    }
+    
+    .print-table .col-name {
+      width: 25%;
+    }
+    
+    .print-table .col-small {
+      width: 8%;
+      text-align: center;
+    }
+    
+    .print-table .col-medium {
+      width: 12%;
+      text-align: center;
+    }
+    
+    .print-table .col-date {
+      width: 10%;
+      text-align: center;
+    }
+    
+    .print-table .col-voltage {
+      width: 10%;
+      text-align: center;
+    }
+    
+    .print-table .col-power {
+      width: 10%;
+      text-align: center;
+    }
+    
+    .print-table .col-heater {
+      width: 15%;
+    }
+    
+    .print-table .col-protection {
+      width: 12%;
+      text-align: center;
+    }
+    
+    .print-table .col-location {
+      width: 15%;
+    }
+    
+    .print-table .col-pp {
+      width: 30px;
+      text-align: center;
+    }
+    
+    .print-table .col-type {
+      width: 20%;
+      vertical-align: top;
+    }
+    
+    .print-table .col-year {
+      width: 8%;
+      text-align: center;
+    }
+    
+    .print-table .col-date-wide {
+      width: 12%;
+      text-align: center;
+    }
+    
+    .print-table .col-location-wide {
+      width: 20%;
+    }
+    
+    .print-table .col-conclusion {
+      width: 18%;
+      vertical-align: top;
+    }
+    
+    .form-footer {
+      margin-top: 30px;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .form-footer-left,
+    .form-footer-right {
+      width: 45%;
+    }
+    
+    .signature-line-long {
+      display: inline-block;
+      min-width: 250px;
+      border-bottom: 1px solid black;
+      padding: 0 10px;
+    }
+    
+    .template-label {
+      font-size: 10pt;
+      color: #666;
+      margin-bottom: 10px;
+    }
+    
+    /* Форма 2: Паспорт */
+    .passport-header {
+      text-align: center;
+      font-weight: bold;
+      font-size: 14pt;
+      margin: 20px 0;
+    }
+    
+    .passport-table th {
+      background-color: #f0f0f0;
+    }
+    
+    .passport-table .col-pp {
+      width: 30px;
+      text-align: center;
+    }
+    
+    .passport-table .col-type {
+      width: 20%;
+    }
+    
+    .passport-table .col-year {
+      width: 10%;
+      text-align: center;
+    }
+    
+    .passport-table .col-date-wide {
+      width: 12%;
+      text-align: center;
+    }
+    
+    .passport-table .col-location-wide {
+      width: 25%;
+    }
+    
+    .passport-table .col-conclusion {
+      width: 20%;
+    }
+    
+    @media print {
+      body {
+        padding: 0;
+      }
+      
+      .page-break {
+        page-break-before: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-content" id="print-content">
+    <!-- Контент будет загружен из localStorage -->
+  </div>
+
+  <script>
+    // Получаем ключ из URL и загружаем контент из localStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    const printKey = urlParams.get('key');
+
+    if (printKey) {
+      const contentHtml = localStorage.getItem(printKey);
+      
+      if (contentHtml) {
+        document.getElementById('print-content').innerHTML = contentHtml;
+        
+        // Очищаем ключ после загрузки (но не сразу, чтобы пользователь мог вернуться)
+        setTimeout(() => {
+          localStorage.removeItem(printKey);
+        }, 60000); // Через 1 минуту
+      } else {
+        document.body.innerHTML = `
+          <div style="color: red; text-align: center; padding: 40px; font-family: sans-serif;">
+            <h2>Ошибка: Документ не найден</h2>
+            <p>Контент для печати не загружен или устарел.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">Пожалуйста, попробуйте сформировать документ заново.</p>
+          </div>
+        `;
+      }
+    } else {
+      document.body.innerHTML = `
+        <div style="color: red; text-align: center; padding: 40px; font-family: sans-serif;">
+          <h2>Ошибка: Нет документа для печати</h2>
+          <p>Контент не передан.</p>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

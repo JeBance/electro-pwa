@@ -3301,28 +3301,28 @@ async function printForm1(e) {
 function generateForm1Html(object, premise, heaters) {
   const currentDate = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   const premiseName = premise ? premise.name : 'все помещения';
-  
+
   // Генерируем строки таблицы (максимум 10 на странице)
   const rowsHtml = heaters.slice(0, 10).map((h, index) => {
-    const powerW = h.power_w || (h.power_kw ? Math.round(h.power_kw * 1000) : '');
-    const decommissionDate = h.decommission_date ? new Date(h.decommission_date).toLocaleDateString('ru-RU') : '';
-    
+    const powerW = h.power_w || (h.power_kw ? Math.round(h.power_kw * 1000) : '—');
+    const decommissionDate = h.decommission_date ? new Date(h.decommission_date).toLocaleDateString('ru-RU') : '—';
+
     return `
       <tr>
-        <td class="col-num">${index + 1}</td>
+        <td class="col-num" style="text-align: center;">${index + 1}</td>
         <td class="col-name">${h.name || ''}</td>
-        <td class="col-small">${h.serial || ''}</td>
-        <td class="col-small">${h.sticker_number || ''}</td>
-        <td class="col-date">${decommissionDate}</td>
-        <td class="col-voltage">${h.voltage_v || ''}</td>
-        <td class="col-power">${powerW}</td>
-        <td class="col-heater">${h.heating_element || ''}</td>
-        <td class="col-protection">${h.protection_type || ''}</td>
+        <td class="col-small" style="text-align: center;">Б/Н</td>
+        <td class="col-small" style="text-align: center;">${h.sticker_number || 'Б/Н'}</td>
+        <td class="col-date" style="text-align: center;">${decommissionDate}</td>
+        <td class="col-voltage" style="text-align: center;">${h.voltage_v || '—'}</td>
+        <td class="col-power" style="text-align: center;">${powerW}</td>
+        <td class="col-heater" style="text-align: center;">${h.heating_element || '—'}</td>
+        <td class="col-protection" style="text-align: center;">${h.protection_type || '—'}</td>
         <td class="col-location">${h.premise_name || ''}</td>
       </tr>
     `;
   }).join('');
-  
+
   // Пустые строки для заполнения до 10
   const emptyRows = Math.max(0, 10 - heaters.length);
   const emptyRowsHtml = Array(emptyRows).fill('<tr><td class="col-num"></td><td class="col-name"></td><td class="col-small"></td><td class="col-small"></td><td class="col-date"></td><td class="col-voltage"></td><td class="col-power"></td><td class="col-heater"></td><td class="col-protection"></td><td class="col-location"></td></tr>').join('');
@@ -3332,18 +3332,25 @@ function generateForm1Html(object, premise, heaters) {
       <div class="form-header">
         <div class="form-header-left">
           <div class="approval-block">
-            <strong>Согласовано</strong><br>
+            <strong>Согласовано</strong>
+            <div style="height: 2px;"></div>
             Начальник пожарной части<br>
-            <br>
+            <div style="height: 12px;"></div>
+            <span class="signature-line"></span>
+            <div style="height: 4px;"></div>
             "__" __________ 202_ г.
           </div>
         </div>
-        <div class="form-header-right">
-          <div class="approval-block">
-            Шаблон 6 к приложению 1<br>
-            <strong>Утверждаю</strong><br>
+        <div class="form-header-right" style="text-align: right;">
+          <div class="approval-block" style="text-align: left; display: inline-block;">
+            Шаблон 6 к приложению 1
+            <div style="height: 8px;"></div>
+            <strong>Утверждаю</strong>
+            <div style="height: 2px;"></div>
             Начальник промысла<br>
-            <br>
+            <div style="height: 12px;"></div>
+            <span class="signature-line"></span>
+            <div style="height: 4px;"></div>
             "__" __________ 202_ г.
           </div>
         </div>
@@ -3354,7 +3361,7 @@ function generateForm1Html(object, premise, heaters) {
       <table class="print-table">
         <thead>
           <tr>
-            <th class="col-num">№п/п</th>
+            <th class="col-num" style="white-space: nowrap;">№п/п</th>
             <th class="col-name">Марка, наименование (тип) отопительного прибора</th>
             <th class="col-small">Зав.№</th>
             <th class="col-small">Инв.№</th>
@@ -3506,7 +3513,7 @@ async function printForm2(e) {
 function generateForm2Html(heaters, allEvents, object, premise) {
   const premiseName = premise ? premise.name : 'все помещения';
   const objectName = object?.name || '';
-  
+
   // Группируем обогреватели по помещениям
   const heatersByPremise = new Map();
   heaters.forEach(h => {
@@ -3523,8 +3530,8 @@ function generateForm2Html(heaters, allEvents, object, premise) {
   for (const [premiseKey, premiseHeaters] of heatersByPremise) {
     // Заголовок помещения
     allRowsHtml += `
-      <tr style="background: #e0e0e0; font-weight: bold;">
-        <td class="col-pp" colspan="8">Помещение: ${premiseKey}</td>
+      <tr style="background: #f0f0f0; font-weight: bold;">
+        <td class="col-pp" colspan="8"><strong>Помещение: ${premiseKey}</strong></td>
       </tr>
     `;
     rowCount++;
@@ -3532,20 +3539,20 @@ function generateForm2Html(heaters, allEvents, object, premise) {
     // Обогреватели этого помещения
     for (const heater of premiseHeaters) {
       if (rowCount >= maxRows) break;
-      
+
       // Находим дату создания обогревателя (первое событие)
-      const heaterEvents = allEvents.filter(ev => 
+      const heaterEvents = allEvents.filter(ev =>
         String(ev.heater_id) === String(heater.id) || ev.heater_uuid === heater.uuid
       ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      
-      const creationDate = heaterEvents.length > 0 
+
+      const creationDate = heaterEvents.length > 0
         ? new Date(heaterEvents[0].created_at).toLocaleDateString('ru-RU')
         : (heater.created_at ? new Date(heater.created_at).toLocaleDateString('ru-RU') : '');
-      
+
       const manufactureYear = heater.manufacture_date ? new Date(heater.manufacture_date).getFullYear() : '';
       const manufactureDate = heater.manufacture_date ? new Date(heater.manufacture_date).toLocaleDateString('ru-RU') : '';
       const decommissionDate = heater.decommission_date ? new Date(heater.decommission_date).toLocaleDateString('ru-RU') : '';
-      
+
       // Находим даты ТО (события status_change с переходом в repair и обратно)
       const toDates = [];
       heaterEvents.forEach(ev => {
@@ -3554,7 +3561,7 @@ function generateForm2Html(heaters, allEvents, object, premise) {
         }
       });
       const toDateStr = toDates.length > 0 ? toDates.join(', ') : '';
-      
+
       // Заключение
       let conclusion = 'Пригоден к эксплуатации';
       if (heater.status === 'repair') {
@@ -3565,19 +3572,19 @@ function generateForm2Html(heaters, allEvents, object, premise) {
 
       allRowsHtml += `
         <tr>
-          <td class="col-pp">${rowCount}</td>
-          <td class="col-type">${heater.name}${heater.serial ? ` (зав.№ ${heater.serial})` : ''}${heater.sticker_number ? ` [${heater.sticker_number}]` : ''}</td>
-          <td class="col-year">${manufactureYear}</td>
-          <td class="col-date-wide">${creationDate}</td>
+          <td class="col-pp" style="text-align: center;">${rowCount}</td>
+          <td class="col-type">${heater.name}${heater.serial ? `<br/><small>зав.№ ${heater.serial}</small>` : ''}${heater.sticker_number ? `<br/><small>[${heater.sticker_number}]</small>` : ''}</td>
+          <td class="col-year" style="text-align: center;">${manufactureYear}</td>
+          <td class="col-date-wide" style="text-align: center;">${creationDate}</td>
           <td class="col-location-wide">${heater.premise_name || '—'}</td>
-          <td class="col-date-wide">${decommissionDate}</td>
-          <td class="col-date-wide">${toDateStr}</td>
+          <td class="col-date-wide" style="text-align: center;">${decommissionDate}</td>
+          <td class="col-date-wide" style="text-align: center;">${toDateStr}</td>
           <td class="col-conclusion">${conclusion}</td>
         </tr>
       `;
       rowCount++;
     }
-    
+
     if (rowCount >= maxRows) break;
   }
 
@@ -3598,14 +3605,11 @@ function generateForm2Html(heaters, allEvents, object, premise) {
 
   return `
     <div class="print-content" style="display: block;">
-      <div style="text-align: center; margin-bottom: 15px; font-size: 10pt; font-weight: bold;">
+      <div style="text-align: center; margin-bottom: 10px; font-size: 11pt; font-weight: bold;">
         Эксплуатационный паспорт на отопительный прибор
       </div>
-      <div style="text-align: right; margin-bottom: 10px; font-size: 9pt;">
+      <div style="text-align: center; margin-bottom: 15px; font-size: 9pt; color: #666;">
         Шаблон 7 к приложению 1
-      </div>
-      <div style="text-align: center; margin-bottom: 15px; font-size: 10pt;">
-        Объект: <strong>${objectName}</strong> | Помещение: <strong>${premiseName}</strong>
       </div>
 
       <table class="print-table passport-table">
@@ -3627,8 +3631,8 @@ function generateForm2Html(heaters, allEvents, object, premise) {
         </tbody>
       </table>
 
-      <div style="margin-top: 20px; font-size: 10pt;">
-        Ответственный за пожарную безопасность: должность, Ф.И.О
+      <div style="margin-top: 15px; font-size: 10pt;">
+        <strong>Ответственный за пожарную безопасность: должность, Ф.И.О</strong>
       </div>
     </div>
   `;
@@ -3636,79 +3640,40 @@ function generateForm2Html(heaters, allEvents, object, premise) {
 
 /**
  * Печать HTML контента на А4
+ * Открывает страницу предпросмотра, где пользователь может проверить документ перед печатью
  */
 async function printToA4(htmlContent) {
-  // Создаём временный контейнер для печати
-  const printContainer = document.createElement('div');
-  printContainer.className = 'print-container';
-  printContainer.innerHTML = htmlContent;
-  document.body.appendChild(printContainer);
-  
-  // Создаём iframe для печати
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '210mm';
-  iframe.style.height = '297mm';
-  iframe.style.border = 'none';
-  iframe.style.zIndex = '-1000';
-  document.body.appendChild(iframe);
-  
-  // Получаем текущие стили
-  const styles = document.querySelector('link[href*="styles.css"]');
-  const stylesHref = styles ? styles.href : '/styles.css';
-  
-  // Записываем контент в iframe
-  const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-  iframeDoc.open();
-  iframeDoc.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Печать формы</title>
-      <link rel="stylesheet" href="${stylesHref}">
-      <style>
-        @media print {
-          @page { size: A4 landscape; margin: 15mm; }
-        }
-        body { margin: 0; padding: 0; }
-      </style>
-    </head>
-    <body>
-      ${htmlContent}
-    </body>
-    </html>
-  `);
-  iframeDoc.close();
-  
-  // Ждём загрузки стилей и печатаем
-  iframe.onload = () => {
-    iframe.contentWindow.focus();
-    iframe.contentWindow.print();
+  try {
+    // Генерируем уникальный ключ для хранения контента
+    const printKey = 'print_content_' + Date.now();
     
-    // Очищаем после печати
-    setTimeout(() => {
-      document.body.removeChild(iframe);
-      document.body.removeChild(printContainer);
-    }, 1000);
-  };
-  
-  // Fallback: если onload не сработал
-  setTimeout(() => {
-    try {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    } catch (err) {
-      console.error('Print error:', err);
+    // Сохраняем контент в localStorage (надёжнее для больших данных)
+    localStorage.setItem(printKey, htmlContent);
+    
+    // Открываем страницу предпросмотра в новом окне
+    const previewUrl = `/print-preview.html?key=${printKey}`;
+    const previewWindow = window.open(previewUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+    
+    if (!previewWindow) {
+      throw new Error('Браузер заблокировал открытие окна предпросмотра. Разрешите всплывающие окна для этого сайта.');
     }
     
-    // Очищаем
-    setTimeout(() => {
-      if (document.body.contains(iframe)) document.body.removeChild(iframe);
-      if (document.body.contains(printContainer)) document.body.removeChild(printContainer);
-    }, 1000);
-  }, 500);
+    // Проверяем, что окно открылось успешно
+    previewWindow.addEventListener('load', () => {
+      console.log('Страница предпросмотра загружена');
+    });
+    
+    // Очищаем localStorage после закрытия окна (с задержкой)
+    previewWindow.addEventListener('unload', () => {
+      setTimeout(() => {
+        localStorage.removeItem(printKey);
+      }, 5000);
+    });
+    
+  } catch (err) {
+    console.error('Print preview error:', err);
+    alert('Ошибка открытия предпросмотра: ' + err.message);
+  }
 }
 
 // Экспорт функций печати
@@ -3717,3 +3682,5 @@ window.selectPrintForm = selectPrintForm;
 window.printForm1 = printForm1;
 window.printForm2 = printForm2;
 window.printToA4 = printToA4;
+window.generateForm1Html = generateForm1Html;
+window.generateForm2Html = generateForm2Html;
