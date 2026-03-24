@@ -3297,99 +3297,117 @@ async function printForm1(e) {
 
 /**
  * Генерация HTML для Формы 1
+ * Создаёт страницы по 10 обогревателей на каждой с разрывом страницы
  */
 function generateForm1Html(object, premise, heaters) {
   const currentDate = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   const premiseName = premise ? premise.name : 'все помещения';
+  const objectName = object?.name || '';
 
-  // Генерируем строки таблицы (максимум 10 на странице)
-  const rowsHtml = heaters.slice(0, 10).map((h, index) => {
-    const powerW = h.power_w || (h.power_kw ? Math.round(h.power_kw * 1000) : '—');
-    const decommissionDate = h.decommission_date ? new Date(h.decommission_date).toLocaleDateString('ru-RU') : '—';
-
-    return `
-      <tr>
-        <td class="col-num" style="text-align: center;">${index + 1}</td>
-        <td class="col-name">${h.name || ''}</td>
-        <td class="col-small" style="text-align: center;">Б/Н</td>
-        <td class="col-small" style="text-align: center;">${h.sticker_number || 'Б/Н'}</td>
-        <td class="col-date" style="text-align: center;">${decommissionDate}</td>
-        <td class="col-voltage" style="text-align: center;">${h.voltage_v || '—'}</td>
-        <td class="col-power" style="text-align: center;">${powerW}</td>
-        <td class="col-heater" style="text-align: center;">${h.heating_element || '—'}</td>
-        <td class="col-protection" style="text-align: center;">${h.protection_type || '—'}</td>
-        <td class="col-location">${h.premise_name || ''}</td>
-      </tr>
-    `;
-  }).join('');
-
-  // Пустые строки для заполнения до 10
-  const emptyRows = Math.max(0, 10 - heaters.length);
-  const emptyRowsHtml = Array(emptyRows).fill('<tr><td class="col-num"></td><td class="col-name"></td><td class="col-small"></td><td class="col-small"></td><td class="col-date"></td><td class="col-voltage"></td><td class="col-power"></td><td class="col-heater"></td><td class="col-protection"></td><td class="col-location"></td></tr>').join('');
+  // Разбиваем обогреватели на страницы по 10 штук
+  const heatersPerPage = 10;
+  const totalPages = Math.ceil(heaters.length / heatersPerPage) || 1;
   
-  return `
-    <div class="print-content" style="display: block;">
-      <div class="form-header">
-        <div class="form-header-left">
-          <div class="approval-block">
-            <strong>Согласовано</strong>
-            <div style="height: 2px;"></div>
-            Начальник пожарной части<br>
-            <div style="height: 12px;"></div>
-            <span class="signature-line"></span>
-            <div style="height: 4px;"></div>
-            "__" __________ 202_ г.
+  const pages = [];
+  
+  for (let page = 0; page < totalPages; page++) {
+    const pageHeaters = heaters.slice(page * heatersPerPage, (page + 1) * heatersPerPage);
+    const globalStartIndex = page * heatersPerPage;
+    
+    // Генерируем строки для текущей страницы
+    const rowsHtml = pageHeaters.map((h, index) => {
+      const powerW = h.power_w || (h.power_kw ? Math.round(h.power_kw * 1000) : '—');
+      const decommissionDate = h.decommission_date ? new Date(h.decommission_date).toLocaleDateString('ru-RU') : '—';
+
+      return `
+        <tr>
+          <td class="col-num" style="text-align: center;">${globalStartIndex + index + 1}</td>
+          <td class="col-name">${h.name || ''}</td>
+          <td class="col-small" style="text-align: center;">Б/Н</td>
+          <td class="col-small" style="text-align: center;">${h.sticker_number || 'Б/Н'}</td>
+          <td class="col-date" style="text-align: center;">${decommissionDate}</td>
+          <td class="col-voltage" style="text-align: center;">${h.voltage_v || '—'}</td>
+          <td class="col-power" style="text-align: center;">${powerW}</td>
+          <td class="col-heater" style="text-align: center;">${h.heating_element || '—'}</td>
+          <td class="col-protection" style="text-align: center;">${h.protection_type || '—'}</td>
+          <td class="col-location">${h.premise_name || ''}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Пустые строки для заполнения до 10
+    const emptyRows = Math.max(0, heatersPerPage - pageHeaters.length);
+    const emptyRowsHtml = Array(emptyRows).fill('<tr><td class="col-num"></td><td class="col-name"></td><td class="col-small"></td><td class="col-small"></td><td class="col-date"></td><td class="col-voltage"></td><td class="col-power"></td><td class="col-heater"></td><td class="col-protection"></td><td class="col-location"></td></tr>').join('');
+
+    // Генерируем страницу
+    const pageHtml = `
+      <div class="print-page" style="display: block;${page > 0 ? ' page-break-before: always;' : ''}">
+        <div class="form-header">
+          <div class="form-header-left">
+            <div class="approval-block">
+              <strong>Согласовано</strong>
+              <div style="height: 2px;"></div>
+              Начальник пожарной части<br>
+              <div style="height: 12px;"></div>
+              <span class="signature-line"></span>
+              <div style="height: 4px;"></div>
+              "__" __________ 202_ г.
+            </div>
+          </div>
+          <div class="form-header-right" style="text-align: right;">
+            <div class="approval-block" style="text-align: left; display: inline-block;">
+              Шаблон 6 к приложению 1
+              <div style="height: 8px;"></div>
+              <strong>Утверждаю</strong>
+              <div style="height: 2px;"></div>
+              Начальник промысла<br>
+              <div style="height: 12px;"></div>
+              <span class="signature-line"></span>
+              <div style="height: 4px;"></div>
+              "__" __________ 202_ г.
+            </div>
           </div>
         </div>
-        <div class="form-header-right" style="text-align: right;">
-          <div class="approval-block" style="text-align: left; display: inline-block;">
-            Шаблон 6 к приложению 1
-            <div style="height: 8px;"></div>
-            <strong>Утверждаю</strong>
-            <div style="height: 2px;"></div>
-            Начальник промысла<br>
-            <div style="height: 12px;"></div>
-            <span class="signature-line"></span>
-            <div style="height: 4px;"></div>
-            "__" __________ 202_ г.
+
+        <div class="form-header-title"><em>Перечень электрических отопительных приборов</em></div>
+
+        <table class="print-table">
+          <thead>
+            <tr>
+              <th class="col-num" style="white-space: nowrap;">№п/п</th>
+              <th class="col-name" style="width: 18%;">Марка, наименование (тип) отопительного прибора</th>
+              <th class="col-small">Зав.№</th>
+              <th class="col-small">Инв.№</th>
+              <th class="col-date">Дата вывода из эксплуатации</th>
+              <th class="col-voltage" style="width: 8%;">Напряжение,<br>В</th>
+              <th class="col-power" style="width: 8%;">Мощность,<br>Вт</th>
+              <th class="col-heater" style="width: 10%;">Нагревательный<br>элемент</th>
+              <th class="col-protection" style="width: 16%;">Исполнение (тип защиты)</th>
+              <th class="col-location" style="width: 25%;">Место установки</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+            ${emptyRowsHtml}
+          </tbody>
+        </table>
+
+        <div class="form-footer">
+          <div class="form-footer-left">
+            Составил: Главный специалист УЖО АО "СТНГ"
+          </div>
+          <div class="form-footer-right">
+            <span class="signature-line-long"></span>
+            <span>А.С.Сербенюк</span>
           </div>
         </div>
       </div>
-
-      <div class="form-header-title"><em>Перечень электрических отопительных приборов</em></div>
-
-      <table class="print-table">
-        <thead>
-          <tr>
-            <th class="col-num" style="white-space: nowrap;">№п/п</th>
-            <th class="col-name">Марка, наименование (тип) отопительного прибора</th>
-            <th class="col-small">Зав.№</th>
-            <th class="col-small">Инв.№</th>
-            <th class="col-date">Дата вывода из эксплуатации</th>
-            <th class="col-voltage">Напряжение, В</th>
-            <th class="col-power">Мощность, Вт</th>
-            <th class="col-heater">Нагревательный элемент</th>
-            <th class="col-protection">Исполнение (тип защиты)</th>
-            <th class="col-location">Место установки</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-          ${emptyRowsHtml}
-        </tbody>
-      </table>
-
-      <div class="form-footer">
-        <div class="form-footer-left">
-          Составил: Главный специалист УЖО АО "СТНГ"
-        </div>
-        <div class="form-footer-right">
-          <span class="signature-line-long"></span>
-          <span>А.С.Сербенюк</span>
-        </div>
-      </div>
-    </div>
-  `;
+    `;
+    
+    pages.push(pageHtml);
+  }
+  
+  return pages.join('');
 }
 
 /**
